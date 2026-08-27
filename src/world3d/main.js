@@ -800,6 +800,7 @@ function replay() {
   hud.clearTransient();
   resetPlayback();
   hud.show(true);
+  audio.startMusic();
   setPhase('grid');
 }
 
@@ -820,7 +821,7 @@ function setPhase(phase) {
     state.fireworks = false;
     lowerThird(null);
     audio.setCrowd(0.1);
-    audio.setMusicIntensity(0.15);
+    audio.stopMusic(0.6);
     els.results.hidden = true;
     rig.setMode('menu');
     renderRoster();
@@ -2006,7 +2007,7 @@ function step(dt) {
   scenery.update(dt, ctx);
   fx.updateRace(dt, ctx);
   if (state.fireworks) {
-    if (state.t > state.lastFinishT + 14) state.fireworks = false;
+    if (state.t > state.lastFinishT + 14 || (state.phase === 'results' && state.phaseTime > 12) || state.phase === 'menu') state.fireworks = false;
     const burst = fx.fireworksTick(dt, scenery.fireworkBarges);
     if (burst) audio.boom();
   }
@@ -2014,7 +2015,9 @@ function step(dt) {
     fx.confetti(tmpV.copy(scenery.podium.spots[0]).setY(scenery.podium.spots[0].y + 2.5), 0.5);
   }
   if (audio.crowdGain && state.phase === 'race') { const cl = Math.round((0.3 + 0.6 * (state.excite || 0)) * 20) / 20; if (cl !== state._crowdL) { state._crowdL = cl; audio.setCrowd(cl); } }
-  audio.setMusicIntensity(state.phase === 'race' ? 0.45 + 0.55 * smoothstep(0.3, 1, state.excite || 0) : state.phase === 'countdown' ? 0.35 : state.phase === 'finish' ? 0.7 : state.phase === 'results' ? 0.4 : 0.22);
+  // music: builds through the race, a short outro on the results screen, then silence (no endless drum loop)
+  if (state.phase === 'results' && state.phaseTime > 7) audio.stopMusic(1.2);
+  else audio.setMusicIntensity(state.phase === 'race' ? 0.45 + 0.55 * smoothstep(0.3, 1, state.excite || 0) : state.phase === 'countdown' ? 0.35 : state.phase === 'finish' ? 0.7 : state.phase === 'results' ? 0.4 * (1 - smoothstep(4, 7, state.phaseTime)) + 0.12 : 0.22);
   audio.setRate(state.phase === 'race' ? state.rate : 1);
   audio.pumpMusic();
   const meS = state.duckStates[state.target];
@@ -2204,6 +2207,7 @@ canvas.addEventListener('pointerup', (e) => {
 // --------------------------------------------------------------------------- capture / debug hooks
 function jump(t) {
   if (!state.race || state.trial) return; // live trials can't seek
+  audio.startMusic();
   els.results.hidden = true;
   state.podium = false;
   const lastT = state.lastFinishT;

@@ -388,3 +388,9 @@ Changes in this push (defence in depth, since the exact trigger isn't reproducib
   host must still be in the lobby (URL `?room=`) after 70 s. PASS here, along with nettest/nettest2/rejoin-check.
 
 If it happens again on prod, the `[net]` lines will say which message arrived from whom — please paste them.
+
+
+**Fixed (executor, same day):** the "percussion that loops forever" was the procedural music bed left running at
+results intensity (kick + clap, no melody at that level) plus fireworks booms keyed to a finish time that live modes
+don't have. Now: a 4–7 s outro on the results screen, then the music stops (fade), fireworks stop after 12 s of
+results, the menu is silent; Replay / seek / a new race restart the music.

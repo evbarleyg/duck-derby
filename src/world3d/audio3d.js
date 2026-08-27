@@ -75,11 +75,13 @@ export class WorldAudio extends DuckAudio {
     this.music.on = true;
     this.music.next = this.ctx.currentTime + 0.1;
     this.music.step = 0;
+    if (this._last) delete this._last.music; // the gain was faded out by stopMusic: force the next pump to restore it
   }
-  stopMusic() {
-    if (!this.music) return;
+  /** Fade the loop out (default ~1 s) and stop scheduling notes. Safe to call repeatedly. */
+  stopMusic(fade = 0.35) {
+    if (!this.music || !this.music.on) return;
     this.music.on = false;
-    if (this.musicGain) this.musicGain.gain.setTargetAtTime(0.0001, this.now, 0.3);
+    if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, fade);
   }
   /** 0..1: how many layers / how loud. */
   setMusicIntensity(x) { if (this.music) this.music.target = Math.max(0, Math.min(1, x)); }
