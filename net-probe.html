@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duck Derby — network probe</title>
+<style>
+  body { font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: #0d1826; color: #dfe9f5; margin: 0; padding: 16px; }
+  h1 { font-size: 16px; color: #ffd23f; margin: 0 0 8px; }
+  #log { white-space: pre-wrap; }
+  .ok { color: #7ee787 } .bad { color: #ff7b72 } .dim { color: #8aa }
+  button, input, select { font: inherit; padding: 4px 8px; margin: 2px; }
+</style>
+<script src="vendor/supabase/supabase.js"></script>
+</head>
+<body>
+<h1>Duck Derby World — transport probe (M1)</h1>
+<div>
+  transport <select id="kind"><option value="supabase">supabase realtime</option><option value="relay">local relay (ws://localhost:8787)</option></select>
+  room <input id="room" value="PROBE" size="6">
+  role <select id="role"><option value="echo">echo (answers pings)</option><option value="ping">ping (measures RTT)</option><option value="flood">flood (rate test)</option></select>
+  <button id="go">start</button>
+</div>
+<div id="log"></div>
+<script type="module">
+import { openRoom } from './src/world3d/net/transport.js';
+import { makeClientId } from './src/world3d/net/codes.js';
+const $ = (s) => document.querySelector(s);
+const logEl = $('#log');
+const log = (s, cls = '') => { const d = document.createElement('div'); d.textContent = s; if (cls) d.className = cls; logEl.prepend(d); };
+const q = new URLSearchParams(location.search);
+if (q.get('kind')) $('#kind').value = q.get('kind');
+if (q.get('room')) $('#room').value = q.get('room');
+if (q.get('role')) $('#role').value = q.get('role');
+const results = (window.__probe = { rtts: [], received: 0, sent: 0, done: false, error: null, rate: null });
+
+async function run() {
+  const kind = $('#kind').value;
+  const code = $('#room').value;
+  const role = $('#role').value;
+  const cid = role + '-' + makeClientId();
+  log(`opening ${kind} room ${code} as ${cid} …`, 'dim');
+  let room;
+  try {
+    room = await openRoom({ kind, code, cid, meta: { role }, relayUrl: q.get('relay') || undefined });
+  } catch (e) { results.error = String(e.message || e); log('FAILED: ' + results.error, 'bad'); return; }
+  log(`subscribed (${JSON.stringify(room.status)})`, 'ok');
+  room.onPresence((m) => log('presence: ' + m.map((x) => x.cid).join(', '), 'dim'));
+  if (role === 'echo') {
+    // answer pings on the input channel with pongs on the state channel (the host's job in the real game)
+    room.on('input', 'ping', (p) => { room.send('state', 'pong', { c: p.c, t0: p.t0, th: performance.now() }); results.received++; });
+    room.on('input', 'i', () => { results.received++; });
+    setInterval(() => { results.rate = results.received; }, 1000);
+    log('echoing…');
+  } else if (role === 'ping') {
+    const N = Number(q.get('n') || 40);
+    room.on('state', 'pong', (p) => {
+      if (p.c !== cid) return;
+      const rtt = performance.now() - p.t0;
+      results.rtts.push(rtt);
+      results.received++;
+      if (results.rtts.length % 10 === 0) log(`rtt n=${results.rtts.length} last=${rtt.toFixed(1)} ms`);
+      if (results.rtts.length >= N) finish();
+    });
+    const iv = setInterval(() => { if (results.sent >= N + 10) { clearInterval(iv); setTimeout(finish, 1500); return; } room.send('input', 'ping', { c: cid, t0: performance.now() }); results.sent++; }, Number(q.get('every') || 120));
+    function finish() {
+      if (results.done) return;
+      results.done = true;
+      const a = results.rtts.slice().sort((x, y) => x - y);
+      const pct = (f) => a.length ? a[Math.min(a.length - 1, Math.floor(a.length * f))] : NaN;
+      results.summary = { n: a.length, sent: results.sent, lossPct: +(100 * (1 - a.length / results.sent)).toFixed(1), min: +a[0]?.toFixed(1), p50: +pct(0.5).toFixed(1), p90: +pct(0.9).toFixed(1), p99: +pct(0.99).toFixed(1), max: +a[a.length - 1]?.toFixed(1) };
+      log('RESULT ' + JSON.stringify(results.summary), 'ok');
+    }
+  } else if (role === 'flood') {
+    // send inputs at 10 Hz and snapshots at 12 Hz for `secs` seconds (what one player + the host would do)
+    const secs = Number(q.get('secs') || 20);
+    const t0 = performance.now();
+    const iv1 = setInterval(() => { room.send('input', 'i', { c: cid, t: performance.now(), s: Math.random() * 2 - 1, b: 0 }); results.sent++; }, 100);
+    const payload = new Array(4 + 12 * 4).fill(0).map((_, i) => i * 7);
+    const iv2 = setInterval(() => { room.send('state', 's', payload); results.sent++; }, 83);
+    setTimeout(() => { clearInterval(iv1); clearInterval(iv2); results.done = true; results.summary = { sent: results.sent, secs, perSec: +(results.sent / ((performance.now() - t0) / 1000)).toFixed(1) }; log('RESULT ' + JSON.stringify(results.summary), 'ok'); }, secs * 1000);
+  }
+}
+$('#go').onclick = run;
+if (q.get('auto')) run();
+</script>
+</body>
+</html>
