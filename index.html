@@ -38,6 +38,7 @@
       <div class="panel-scroll">
         <h1 id="setup-title">Race for your <span>draft order</span></h1>
         <p class="lede">Name your ducks. We'll race them down the pond — fair, seeded and replayable — and hand you a draft board.</p>
+        <a id="link-world" class="world-link" href="world.html">New: <b>Duck Derby World</b> — the 3D Mario Kart-style race (items, TV cameras, join-by-QR) →</a>
 
         <div id="share-banner" class="share-banner" hidden>
           <strong>Shared race loaded.</strong> Same ducks + same seed = the exact same race. Hit <em>Replay</em> to watch it.
@@ -154,5 +155,9 @@
 
     <noscript><p style="padding:2rem;color:#fff">Duck Derby needs JavaScript to race.</p></noscript>
     <script type="module" src="src/main.js"></script>
-  </body>
+  <script>
+  // carry a shared roster/seed over to the 3D game
+  (function () { var a = document.getElementById('link-world'); if (a && location.search) a.href = 'world.html' + location.search; })();
+</script>
+</body>
 </html>

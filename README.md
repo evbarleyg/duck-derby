@@ -9,21 +9,18 @@ Two static browser games that settle a fantasy-football draft order with a duck 
 
 Everything is plain HTML/CSS/JS (Three.js r160 is vendored under `vendor/`), so it runs from any static host.
 
-## Publish it on GitHub Pages (5 minutes)
+## Deployment (Vercel)
 
-1. Create a new repository on GitHub (public is fine) and push this folder as its root:
-   ```sh
-   git init && git add -A && git commit -m "Duck Derby"
-   git branch -M main
-   git remote add origin git@github.com:<you>/<repo>.git
-   git push -u origin main
-   ```
-2. In the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. The included workflow (`.github/workflows/pages.yml`) runs the tests and deploys on every push to `main`.
-   Your site will be at `https://<you>.github.io/<repo>/` (2D) and `https://<you>.github.io/<repo>/world.html` (3D).
+The repo is connected to Vercel through its GitHub integration: every push to `main` deploys production, every
+other branch/PR gets a preview URL. There is no build step — Vercel serves the repo root as static files
+(`vercel.json` pins that, adds clean URLs so `/world` works as well as `/world.html`, long-lived caching for the
+vendored Three.js bundle and no-cache for the game sources; `.vercelignore` keeps tests/tools/docs out of the
+deployment). CI (`.github/workflows/ci.yml`) runs `npm run ci` on every push and PR.
 
-No build step, no secrets, no server. (If you'd rather not use Actions, "Deploy from a branch" also works: the
-repo root is directly servable.)
+- 2D game: `https://<your-domain>/`
+- 3D game: `https://<your-domain>/world` (or `/world.html`)
+
+Any other static host works too (GitHub Pages, Netlify, S3…) — just serve the repo root.
 
 ## Run locally
 

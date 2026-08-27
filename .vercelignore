@@ -1,0 +1,8 @@
+# dev-only: keep the deployed site to the game files
+test/
+tools/
+docs/
+shots/
+node_modules/
+*.md
+.github/
