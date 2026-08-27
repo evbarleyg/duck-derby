@@ -205,6 +205,18 @@ room link cold → observe fly-through instead of lobby; (3) wait ~45 s → obse
 No relevant console output was captured (app logs are quiet on this path — worth adding a `[net]` log line on
 join-mode entry and on any auto-start trigger while debugging this).
 
+## BUG — finish audio loops forever on the results screen (Evan, real playthrough 2026-08-27)
+
+Evan, playing the seeded race on his Mac: "there's sort of a percussive sound for finishing that loops
+forever at the end." Some finish-time percussion (confetti cannon / fireworks / photo-finish sting) never
+stops once the results screen is up. Needs the finish stingers to be one-shots and/or the race audio loops to
+be released on entering results.
+
+Meanwhile the seeded league flow was verified end-to-end live on prod by the laptop session (names+seed link →
+"pick your duck" self-select screen → 35 s synchronized countdown with Copy link → full race → DRAFT ORDER
+results + podium + share). That flow is what the league is testing with today; it ships. The pick-your-duck
+screen is exactly the "select yourself on login" experience — no extra feature needed.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
