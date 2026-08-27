@@ -51,7 +51,12 @@ export class SteerInput {
     let raw = k !== 0 ? k : this.touchDir !== 0 ? this.touchDir : this.tilt.on ? this.tilt.value : 0;
     raw = Math.max(-1, Math.min(1, raw));
     this.raw = raw;
-    const rate = Math.abs(raw) > Math.abs(this.steer) ? 9 : 6; // snappy in, softer out
+    // Step inputs (keys, touch halves) need a much faster filter than analog tilt: with the tilt-tuned
+    // rates every key tap ramps ~250 ms to full lock and feels mushy on desktop. Tilt keeps the softer
+    // smoothing because the hand supplies its own.
+    const stepInput = k !== 0 || this.touchDir !== 0;
+    const attacking = Math.abs(raw) > Math.abs(this.steer);
+    const rate = stepInput ? (attacking ? 22 : 14) : (attacking ? 9 : 6);
     this.steer += (raw - this.steer) * Math.min(1, dt * rate);
     return this.steer;
   }

@@ -243,6 +243,17 @@ Grand Prix is GREEN-LIT for a real multi-phone league test. Remaining watch item
 permission path, reconnect-after-lock) per the phone checklist, and first multi-phone session at 6+ players
 to see P2P establishment rates in the wild (fallback clients are the ones that touch the Realtime caps).
 
+## Follow-ups from Evan's live playtest (2026-08-27, evening)
+
+- **Desktop steering felt mushy vs phone tilt** — root cause: `SteerInput.update()` used the tilt-tuned
+  smoothing rates (9 in / 6 out, τ≈110/170 ms) for ALL sources, so binary key taps ramped ~250 ms to full
+  lock. Fixed by the laptop session: step inputs (keys, touch halves) now use 22/14 while tilt keeps 9/6.
+  Executor: re-tune to taste, and note the same constants feed the online input coalescer.
+- **Finish-audio loop possibly still occurring** — Evan reports the endless percussion again AFTER 6398adf.
+  Two hypotheses to run down: (1) his tab predated the deploy (game sources are no-cache but an open tab keeps
+  old JS; asked him to reload), (2) the fix covered `world3d/audio3d.js` only — if he was on the **2D** game
+  (`src/audio.js`), its results-screen audio has no equivalent fix. Please check the 2D finish path either way.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
