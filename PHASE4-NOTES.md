@@ -223,6 +223,8 @@ screen is exactly the "select yourself on login" experience — no extra feature
 request) and the 2D renderer draws championship front plumage (`drawChest` in `draw-duck.js`) — two proud,
 comically ample breast lobes with a breathing swell. Please give the 3D duck builder (`ducks3d.js`) the same
 treatment when convenient: an exaggerated puffed-chest geometry keyed off `look.chesty`, cosmetic only.
+**Done (executor):** `ducks3d.js` builds two vertex-coloured lobes + tufts on `look.chesty`, `animate.js` gives
+them the slow breathing swell (and a prouder puff while boosting). Works in every mode since it rides on `assignLooks`.
 
 ## Draft night runbook (host = Evan's laptop)
 

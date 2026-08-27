@@ -133,6 +133,9 @@ export class DuckAnimator {
     duck.group.quaternion.setFromRotationMatrix(this.basis);
     duck.pivot.rotation.set(this.pitch, this.yawOff, roll, 'YXZ');
 
+    // championship plumage: slow deep-breath swell (+ a prouder puff while boosting)
+    if (duck.chestPuff) { const puff = 1 + Math.sin(rt * 2.6 + this.i) * 0.04 + (w.boost || w.burst ? 0.12 : 0); duck.chestPuff.scale.set(puff, puff, puff * (1 + Math.sin(rt * 2.6 + this.i) * 0.03)); }
+
     // --- squash & stretch on boost start / landing
     let sq = 0;
     const boostW = w.boost || w.burst;

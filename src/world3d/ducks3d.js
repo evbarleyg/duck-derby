@@ -476,6 +476,28 @@ export function buildDuck(look) {
     pivot.add(chest);
     statics.push(chest);
   }
+  // league easter egg (look.chesty): championship front plumage — two proud, comically ample lobes on the front,
+  // in their own group so the animator can give them a slow deep-breath swell; vertex-coloured like the tail so
+  // they share the merged parts' program (no extra shader)
+  let chestPuff = null;
+  if (look.chesty) {
+    chestPuff = new THREE.Group();
+    chestPuff.position.set(0, 0.36, 0.5);
+    const lobeCol = withLightness(pal.body, dark ? 0.04 : 0.07);
+    for (const side of [-1, 1]) {
+      const lobe = new THREE.Mesh(colorize(smallGeo.clone(), lobeCol), vcMat(metallic));
+      lobe.scale.set(0.25, 0.27, 0.24);
+      lobe.position.set(side * 0.19, 0, 0);
+      lobe.rotation.z = side * 0.18;
+      chestPuff.add(lobe);
+      // a downy tuft on the leading edge of each lobe
+      const tuft = new THREE.Mesh(colorize(smallGeo.clone(), withLightness(pal.body, 0.14)), vcMat(metallic));
+      tuft.scale.set(0.08, 0.06, 0.07);
+      tuft.position.set(side * 0.24, 0.12, 0.19);
+      chestPuff.add(tuft);
+    }
+    pivot.add(chestPuff);
+  }
   // neck: fills the gap between body and head from every angle (the head pumps above it)
   const neck = new THREE.Mesh(smallGeo, mats.body);
   neck.scale.set(0.25, 0.22, 0.25);
@@ -637,7 +659,7 @@ export function buildDuck(look) {
   });
   const lod = { far: [shadow, foam, wake, ...decalMerged, ...feet, ...hatRest] };
   const shared = new Set([bodyGeo, smallGeo, wingBase[-1], wingBase[1], eyeGeo, tailGeo, footGeo, neckRingGeo, ringGeo, clothGeo, roundelGeo, ringNumGeoL, ringNumGeoR, glintGeo, pupilGeo, nostrilGeo, cheekGeo, shadowGeo, foamGeo, wakeGeo, blackMat, glintMat, shadowMat, wakeTex, foamTex, decalMat.map, ...HAT_SHARED_MATERIALS]);
-  return { group, pivot, body: bodyMerged[0] || body, head, wings, feet, hat, shadow, tail, wake, foam, mats, glowMats, look, shared, lod };
+  return { group, pivot, body: bodyMerged[0] || body, head, wings, feet, hat, shadow, tail, wake, foam, chestPuff, mats, glowMats, look, shared, lod };
 }
 
 /** Small canvas name tag sprite shown above a duck. */
