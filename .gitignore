@@ -2,3 +2,4 @@ node_modules/
 shots/
 _site/
 .DS_Store
+.vercel
