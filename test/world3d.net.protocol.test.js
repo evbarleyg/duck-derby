@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { packSnapshot, unpackSnapshot, InputCoalescer, SnapshotBuffer, FLAG, PROTOCOL_VERSION } from '../src/world3d/net/protocol.js';
+import { packSnapshot, unpackSnapshot, InputCoalescer, SnapshotBuffer, FLAG, PROTOCOL_VERSION, ratePolicy, messageBudget } from '../src/world3d/net/protocol.js';
 import { makeRoomCode, normalizeRoomCode, CODE_ALPHABET, makeClientId } from '../src/world3d/net/codes.js';
 import { ClockSync } from '../src/world3d/net/clock.js';
 
@@ -28,7 +28,7 @@ test('snapshot pack/unpack round-trips within quantisation', () => {
 });
 
 test('input coalescer: ≤10 Hz, sends on change, heartbeats when idle', () => {
-  const c = new InputCoalescer();
+  const c = new InputCoalescer({ minInterval: 100, heartbeat: 250 });
   const sent = [];
   let steer = 0;
   for (let ms = 0; ms <= 3000; ms += 16) {
@@ -96,4 +96,16 @@ test('clock sync converges on the true offset despite one slow round trip', () =
   assert.ok(Math.abs(cs.offset - trueOffset) < 2, 'offset ' + cs.offset);
   assert.ok(Math.abs(cs.toLocal(cs.toHost(777)) - 777) < 1e-9);
   assert.ok(cs.rtt >= 40 && cs.rtt <= 44);
+});
+
+test('message budget: rates step down with room size and 12 racers + a TV stay under ~250 deliveries/s', () => {
+  assert.equal(ratePolicy(3).snapHz, 12);
+  assert.equal(ratePolicy(8).snapHz, 10);
+  assert.equal(ratePolicy(12).snapHz, 8);
+  assert.ok(ratePolicy(12).interpDelay > ratePolicy(3).interpDelay);
+  const b12 = messageBudget(12, 1); // 12 racers incl. host + one spectator screen
+  assert.ok(b12.perSecond < 250, JSON.stringify(b12));
+  assert.ok(b12.detail.frames === 8 * 12, 'fan-out dominates: 8 Hz x 12 subscribers');
+  const b4 = messageBudget(4);
+  assert.ok(b4.perSecond < 80, JSON.stringify(b4));
 });

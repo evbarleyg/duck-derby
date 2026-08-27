@@ -7,9 +7,9 @@ import { getCourse } from '../course.js';
 import { TRIAL, trialLayout } from '../trial.js';
 import { SnapshotBuffer, FLAG } from './protocol.js';
 
-export const INTERP_DELAY = 0.12; // seconds behind the newest host time we render remote ducks at
+export const INTERP_DELAY = 0.12; // default seconds behind the newest host time we render remote ducks at
 
-export function createRemoteRace({ names, myIndex = -1, seed = 1, course = getCourse() }) {
+export function createRemoteRace({ names, myIndex = -1, seed = 1, interpDelay = INTERP_DELAY, course = getCourse() }) {
   const layout = trialLayout(seed, course);
   const L = course.length;
   const F = course.features;
@@ -76,7 +76,7 @@ export function createRemoteRace({ names, myIndex = -1, seed = 1, course = getCo
    */
   function step(dt, hostNow, mySteer) {
     t = hostNow;
-    const has = buf.sample(hostNow - INTERP_DELAY, sampled);
+    const has = buf.sample(hostNow - interpDelay, sampled);
     for (let i = 0; i < count; i++) {
       const d = ducks[i];
       const src = has && sampled[i] ? sampled[i] : null;

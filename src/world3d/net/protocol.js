@@ -24,10 +24,41 @@ export const MSG = {
   input: 'i', // {c: cid, t: hostTime, s: steer(-1..1 quantised), b: buttons bitfield}
   ping: 'ping', // {c, t0}
   // state channel (host -> all)
-  snap: 's', // packed snapshot (see packSnapshot)
-  pong: 'pong', // {c, t0, th}
-  ev: 'ev', // {list:[event,...]} race events (pickup/hit/finish...) stamped with host race time
+  frame: 'f', // {s: packed snapshot, e?: [events], p?: [[cid, t0, th], ...]} -- ONE broadcast per tick carries everything
+  snap: 's', // (legacy) packed snapshot alone
+  pong: 'pong', // (lobby only) {c, t0, th} -- during a race pongs ride inside the frame
+  ev: 'ev', // (legacy) {list:[event,...]}
 };
+
+/**
+ * Message-rate policy. Supabase Realtime meters a project by messages per second INCLUDING fan-out
+ * (one broadcast to N subscribers counts N), so the dominant term is snapshotHz x subscribers. Rates step
+ * down with room size; the interpolation delay steps up to match.
+ */
+export function ratePolicy(racers, spectators = 0) {
+  const subs = Math.max(1, racers - 1 + spectators); // everyone but the host receives state
+  const snapHz = racers <= 4 ? 12 : racers <= 8 ? 10 : 8;
+  return {
+    snapHz,
+    interpDelay: snapHz >= 12 ? 0.12 : snapHz >= 10 ? 0.15 : 0.19, // ~1.5 snapshot intervals
+    inputMinMs: 125, // <= 8 Hz per player while steering changes
+    inputHeartbeatMs: 600, // idle keep-alive (autopilot kicks in after INPUT_STALE_MS)
+    pingEveryMs: 3000, // after clock lock; pongs ride in frames during the race
+    subscribers: subs,
+  };
+}
+
+/** Expected server-counted messages per second during a race (deliveries), for the notes and a unit test. */
+export function messageBudget(racers, spectators = 0, { steeringDuty = 0.7 } = {}) {
+  const pol = ratePolicy(racers, spectators);
+  const players = Math.max(0, racers - 1); // remote players (host's own input is local)
+  const inputsPerPlayer = steeringDuty * (1000 / pol.inputMinMs) + (1 - steeringDuty) * (1000 / pol.inputHeartbeatMs);
+  const inputs = players * inputsPerPlayer; // -> 1 subscriber (host)
+  const pings = players * (1000 / pol.pingEveryMs); // -> host
+  const frames = pol.snapHz * pol.subscribers; // fan-out
+  const control = 2; // roster heartbeat etc.
+  return { ...pol, perSecond: Math.round(inputs + pings + frames + control), detail: { inputs: Math.round(inputs), pings: Math.round(pings), frames: Math.round(frames), control } };
+}
 
 // duck state flags packed into one small int
 export const FLAG = { boosting: 1, spinning: 2, airborne: 4, finished: 8, ai: 16, bonk: 32 };
@@ -76,10 +107,10 @@ export function unpackSnapshot(arr, into = null) {
 /**
  * Input coalescing: call `offer(steer, buttons, nowMs)` every frame; it returns a message to send only when the
  * input changed by more than `eps`, a button changed, or the heartbeat interval elapsed -- and never more often
- * than `minInterval` (10 Hz by default). Steer is quantised to 2 decimals on the wire.
+ * than `minInterval` (8 Hz by default). Steer is quantised to 2 decimals on the wire.
  */
 export class InputCoalescer {
-  constructor({ eps = 0.04, minInterval = 100, heartbeat = 250 } = {}) {
+  constructor({ eps = 0.04, minInterval = 125, heartbeat = 600 } = {}) {
     this.eps = eps;
     this.minInterval = minInterval;
     this.heartbeat = heartbeat;

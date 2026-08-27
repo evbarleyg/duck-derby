@@ -210,3 +210,32 @@ If the plan caps the quota below ~400/s, the fan-out channel (`:out`) needs a di
   sandbox allow-list (see top).
 - Spectator ("TV") view during the race uses the existing TV director; a dedicated big-screen standings layout
   for the host laptop is a nice-to-have.
+
+
+## Executor reply (2026-08-27): message diet — the game now needs ~170 msgs/s at 12 racers, ~60 at 4
+
+In response to the live finding above (the quota counts fan-out), the protocol was slimmed so a modest quota raise
+suffices and small rooms may already fit the default:
+
+- **One broadcast per host tick** (`MSG.frame` = packed snapshot + any race events + any pongs). The separate `ev`
+  and `pong` fan-out messages are gone during a race (pongs carry the host's queueing time so RTT/clock stay exact).
+- **Adaptive snapshot rate** by room size (`ratePolicy()` in `protocol.js`): ≤4 racers 12 Hz, ≤8 → 10 Hz, 9+ → 8 Hz,
+  with the interpolation delay widened to match (0.12 / 0.15 / 0.19 s). Prediction hides this for your own duck.
+- **Inputs** ≤ 8 Hz while steering changes, 600 ms heartbeat when idle (autopilot threshold 2 s); **pings** every
+  3 s after an initial burst.
+- `messageBudget(racers, spectators)` (unit-tested) gives the server-counted rate, fan-out included:
+
+| racers (+TV) | snapshot Hz | deliveries/s |
+|---|---|---|
+| 2 | 12 | ~20 |
+| 4 | 12 | ~57 |
+| 8 | 10 | ~117 |
+| 12 (+1 TV) | 8 | ~169 |
+| 16 | 8 | ~219 |
+
+So: **a quota of ≥ 250 msgs/s covers a full 12-player draft with margin** (previously ~400 was needed), and rooms
+of ≤ 5 should already run under the ~100/s default — worth a quick live re-test even before the raise:
+`node tools/loadtest.mjs supabase 4 60`, then `… supabase 12 150` after the raise. Relay re-verification here:
+browser test PASS, 12 bots × 2 races converged with 363/363 frames delivered per bot, RTT p50 68 ms.
+If the plan cannot reach ~250/s, say so and I'll move the `:out` fan-out to a WebRTC star (host → each phone
+data channel, Supabase only for lobby/signalling), which takes the snapshot traffic off Realtime entirely.

@@ -3,14 +3,14 @@
 // (a trial-shaped object: the host's sim or the client's RemoteRace).
 import { openRoom } from './transport.js';
 import { initialLobby, reduce, rosterMessage, canStart, racers, ROLES, pickOrder, seriesStandings } from './lobby.js';
-import { MSG, FLAG, packSnapshot, unpackSnapshot, InputCoalescer, PROTOCOL_VERSION } from './protocol.js';
+import { MSG, FLAG, packSnapshot, unpackSnapshot, InputCoalescer, PROTOCOL_VERSION, ratePolicy } from './protocol.js';
 import { ClockSync } from './clock.js';
 import { makeRoomCode, makeClientId, normalizeRoomCode } from './codes.js';
 import { createTrial } from '../trial.js';
 import { createRemoteRace } from './remote-race.js';
 
-export const SNAP_HZ = 12;
-const INPUT_STALE_MS = 1200; // no input for this long -> autopilot
+export const SNAP_HZ = 12; // ceiling; the live rate comes from ratePolicy(racers)
+const INPUT_STALE_MS = 2000; // no input for this long -> autopilot (heartbeats arrive every 600 ms)
 const COUNTDOWN_MS = 4200; // start is scheduled this far ahead so every phone has it before GO
 export { ROLES, canStart, racers, pickOrder, normalizeRoomCode, makeRoomCode };
 
@@ -83,8 +83,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION });
     if (s.isHost) broadcastRoster();
     else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION }); }, 1500); }
-    pingTimer = setInterval(sendPing, 700);
-    for (let k = 1; k <= 4; k++) setTimeout(sendPing, k * 150);
+    pingTimer = setInterval(sendPing, 3000);
+    for (let k = 1; k <= 6; k++) setTimeout(sendPing, k * 180); // quick burst to lock the clock
     return s;
   }
   let helloTimer = null;
@@ -150,7 +150,9 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     });
     room.on('input', MSG.ping, (p) => {
       if (!s.isHost) return;
-      room.send('state', MSG.pong, { c: p.c, t0: p.t0, th: performance.now() });
+      // during a race the pong rides inside the next frame (no extra fan-out message); in the lobby answer directly
+      if (hostRace && (lobby.phase === 'race' || lobby.phase === 'countdown')) pendingPongs.push([p.c, p.t0, performance.now()]);
+      else room.send('state', MSG.pong, { c: p.c, t0: p.t0, th: performance.now() });
       seen(p.c);
     });
     // ---- state channel (everyone but the host consumes)
@@ -159,6 +161,17 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       clock.addSample(p.t0, performance.now(), p.th);
       s.lastHostSeen = Date.now();
     });
+    room.on('state', MSG.frame, (f) => {
+      if (s.isHost) return;
+      const nowP = performance.now();
+      s.lastHostSeen = Date.now();
+      s.stats.snapsIn++;
+      if (f.p) for (const pg of f.p) if (pg[0] === cid) clock.addSample(pg[1], nowP - Math.max(0, (f.hs || pg[2]) - pg[2]), pg[2]); // pong folded into the frame: discount the time it waited on the host
+      const snap = unpackSnapshot(f.s, unpackTarget);
+      if (snap && s.live && s.live.applySnapshot) s.live.applySnapshot(snap);
+      if (f.e && f.e.length && s.live && s.live.applyEvents) s.live.applyEvents(f.e);
+    });
+    // legacy separate messages (older hosts)
     room.on('state', MSG.snap, (arr) => {
       if (s.isHost) return;
       s.lastHostSeen = Date.now();
@@ -221,6 +234,11 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     slotToCid = msg.cids;
     s.mySlot = msg.cids.indexOf(cid);
     const humans = new Set(msg.cids.map((_, i) => i));
+    const spectators = Object.values(lobby.players).filter((p) => p.online && p.role === ROLES.spectator).length;
+    policy = ratePolicy(msg.names.length, spectators);
+    s.policy = policy;
+    coalescer.minInterval = policy.inputMinMs;
+    coalescer.heartbeat = policy.inputHeartbeatMs;
     if (asHost) {
       hostRace = createTrial({ names: msg.names, playerIndex: Math.max(0, s.mySlot), humans, seed: msg.seed });
       for (let i = 0; i < msg.names.length; i++) { inputs[i] = null; inputAt[i] = 0; }
@@ -230,7 +248,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       clearInterval(hostTimer);
       hostTimer = setInterval(hostLoop, 16);
     } else {
-      s.live = createRemoteRace({ names: msg.names, myIndex: s.mySlot, seed: msg.seed });
+      s.live = createRemoteRace({ names: msg.names, myIndex: s.mySlot, seed: msg.seed, interpDelay: policy.interpDelay });
       if (!clock.samples.length && msg.hostNow) clock.provisional(msg.hostNow, performance.now() - 40); // assume ~40 ms one-way until pings refine it
       s.startAtLocal = clock.samples.length || msg.hostNow ? clock.toLocal(msg.startAt) : performance.now() + COUNTDOWN_MS - 150;
     }
@@ -263,12 +281,15 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     }
     const evs = hostRace.drain();
     if (evs.length) { evOut.push(...evs); pendingLocal.push(...evs); }
-    if (now - lastSnapAt >= 1000 / SNAP_HZ - 2) {
+    if (now - lastSnapAt >= 1000 / policy.snapHz - 2) {
       lastSnapAt = now;
       const ducks = hostRace.ducks.map((d) => ({ s: d.s, lat: d.lat, v: d.v, flags: (d.state.boosting ? FLAG.boosting : 0) | (d.state.spinning ? FLAG.spinning : 0) | (d.state.airborne ? FLAG.airborne : 0) | (d.finishTime !== null ? FLAG.finished : 0) | (d.autopilot ? FLAG.ai : 0) | (d.state.bonk ? FLAG.bonk : 0) }));
-      room.send('state', MSG.snap, packSnapshot(hostRace.t, snapTick++, ducks));
+      // ONE broadcast per tick: snapshot + any events + any pongs (fan-out is what the Realtime quota counts)
+      const frame = { s: packSnapshot(hostRace.t, snapTick++, ducks) };
+      if (evOut.length) { frame.e = evOut; evOut = []; }
+      if (pendingPongs.length) { frame.p = pendingPongs.map((pg) => [pg[0], pg[1], pg[2]]); frame.hs = performance.now(); pendingPongs.length = 0; } // hs: host send time, so clients can subtract the queueing delay
+      room.send('state', MSG.frame, frame);
       s.stats.snapsOut++;
-      if (evOut.length) { room.send('state', MSG.ev, { list: evOut }); evOut = []; }
     }
     // finish: everyone home, or 25 s after the first human finishes, or 100 s total
     const humanTimes = slotToCid.map((_, i) => hostRace.race.finishTimes[i]).filter((x) => x !== null);
@@ -276,6 +297,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     if (hostRace.done || (firstHuman !== null && hostRace.t > firstHuman + 25) || hostRace.t > 100) hostFinish();
   }
   const pendingLocal = []; // host: events for the local HUD, delivered on the next render tick
+  const pendingPongs = []; // host: pings answered inside the next frame
+  let policy = ratePolicy(2);
 
   function tick(dt, mySteer) {
     if (!s.live || lobby.phase === 'results' || lobby.phase === 'lobby') return s.live;
