@@ -89,8 +89,11 @@ function attach(c) {
     if (m.kind === 'join') {
       myRoom = m.room;
       if (!rooms.has(myRoom)) rooms.set(myRoom, new Map());
-      rooms.get(myRoom).set(c, { cid: m.cid, meta: m.meta || {} });
+      rooms.get(myRoom).set(c, { cid: m.cid, meta: m.meta || {}, off: new Set() });
       presence(myRoom);
+    } else if (m.kind === 'sub' && myRoom) {
+      const me = rooms.get(myRoom) && rooms.get(myRoom).get(c);
+      if (me) { if (m.on) me.off.delete(m.chan); else me.off.add(m.chan); }
     } else if (m.kind === 'track' && myRoom) {
       const r = rooms.get(myRoom);
       if (r && r.has(c)) { r.get(c).meta = m.meta || {}; presence(myRoom); }
@@ -100,8 +103,9 @@ function attach(c) {
       stats.msgs++;
       stats.bytes += text.length;
       if (stats.byChan[m.chan] !== undefined) stats.byChan[m.chan]++;
-      for (const peer of r.keys()) {
-        if (peer === c) continue;
+      for (const [peer, info] of r.entries()) {
+        if (peer === c || (info.off && info.off.has(m.chan))) continue;
+        stats.deliveries = (stats.deliveries || 0) + 1;
         if (LAT || JIT) setTimeout(() => peer.send(text), Math.max(0, LAT + (Math.random() * 2 - 1) * JIT));
         else peer.send(text);
       }

@@ -129,6 +129,10 @@ async function openSupabaseRoom({ code, cid, meta = {}, url, key, subscribe = { 
     on: em.on,
     onPresence(fn) { presenceCb = fn; },
     async track(m) { if (chans.control) { try { await chans.control.track({ ...m, at: Date.now() }); } catch { /* ignore */ } } },
+    /** Leave the state channel (a WebRTC link is carrying the race) so this client stops counting in the broadcast fan-out. */
+    async pauseState() { if (chans.state) { const ch = chans.state; delete chans.state; status.state = 'paused'; try { await client.removeChannel(ch); } catch { /* ignore */ } } },
+    async resumeState() { if (!chans.state && subscribe.state !== false) { try { await openOne('state'); } catch (e) { console.warn('[net] state resume failed', e.message); } } },
+    get stateSubscribed() { return !!chans.state; },
     async leave() { for (const ch of Object.values(chans)) { try { await client.removeChannel(ch); } catch { /* ignore */ } } },
   };
 }
@@ -139,6 +143,7 @@ async function openRelayRoom({ code, cid, meta = {}, relayUrl }) {
   const em = makeEmitter();
   let presenceCb = () => {};
   let members = [];
+  let statePaused = false;
   const ws = new WebSocket(url);
   await new Promise((resolve, reject) => {
     const to = setTimeout(() => reject(new Error('relay connect timeout')), 8000);
@@ -165,6 +170,10 @@ async function openRelayRoom({ code, cid, meta = {}, relayUrl }) {
     on: em.on,
     onPresence(fn) { presenceCb = fn; if (members.length) fn(members); },
     async track(m) { if (ws.readyState === 1) ws.send(JSON.stringify({ kind: 'track', room: code, cid, meta: m })); },
+    // relay: tell the server to stop/start delivering the state channel to us (mirrors leaving the Realtime channel)
+    async pauseState() { statePaused = true; if (ws.readyState === 1) ws.send(JSON.stringify({ kind: 'sub', room: code, chan: 'state', on: false })); },
+    async resumeState() { statePaused = false; if (ws.readyState === 1) ws.send(JSON.stringify({ kind: 'sub', room: code, chan: 'state', on: true })); },
+    get stateSubscribed() { return !statePaused; },
     async leave() { try { ws.close(); } catch { /* ignore */ } },
     _ws: ws,
   };

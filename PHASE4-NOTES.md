@@ -239,3 +239,29 @@ of ≤ 5 should already run under the ~100/s default — worth a quick live re-t
 browser test PASS, 12 bots × 2 races converged with 363/363 frames delivered per bot, RTT p50 68 ms.
 If the plan cannot reach ~250/s, say so and I'll move the `:out` fan-out to a WebRTC star (host → each phone
 data channel, Supabase only for lobby/signalling), which takes the snapshot traffic off Realtime entirely.
+
+
+## Executor follow-up (2026-08-27, later): WebRTC star takes the race traffic off Realtime
+
+Built the contingency rather than wait on the quota: `src/world3d/net/rtc.js`. In the lobby the host opens an
+`RTCPeerConnection` to every participant (signalling = three small messages each over the control channel; public
+STUN, no TURN). During the race:
+
+- frames (snapshot + events + pongs) go host → phone over an **unordered, no-retransmit data channel**; inputs go
+  phone → host the same way;
+- a phone whose data channel is up **leaves the Realtime `:out` channel** (`transport.pauseState()`), so it no
+  longer counts in the broadcast fan-out; if its link drops it re-joins the channel within ~1 s and the host resumes
+  broadcasting for it (the host broadcasts only while someone racing/watching is not reached by a data channel);
+- peers that cannot connect (symmetric NAT on some cellular carriers, no TURN) simply stay on the Realtime path —
+  per phone, automatically. `?rtc=0` forces the old behaviour for A/B testing.
+
+Effect on the quota: with all phones linked, Realtime carries only the lobby, signalling, roster heartbeats and
+3-second pings — a few messages per second regardless of player count. With k phones unlinked it is the message-diet
+budget for k subscribers (e.g. 2 stragglers at 8 Hz ≈ 20 msgs/s). Verified here (Chromium, relay for signalling):
+host `rtcPeers: 2`, guests `rtcIn 76/76 via rtc`, identical results, reload-mid-race rejoin still lands in the same
+race with control, permalink + seeded fallback unchanged, no console errors. Node bots have no WebRTC, so
+`tools/loadtest.mjs` keeps measuring the pure-Realtime path (worst case).
+
+What this needs from the live leg: nothing new — the existing phone checklist covers it (two phones on different
+networks joining the deployed site is the real STUN test). If a phone shows `via: relay` in
+`__duckWorld.session().rtcLinked === false`, it fell back; the game still works for it through Realtime.

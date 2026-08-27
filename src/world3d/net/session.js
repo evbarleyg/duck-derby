@@ -8,6 +8,7 @@ import { ClockSync } from './clock.js';
 import { makeRoomCode, makeClientId, normalizeRoomCode } from './codes.js';
 import { createTrial } from '../trial.js';
 import { createRemoteRace } from './remote-race.js';
+import { createRtcStar } from './rtc.js';
 
 export const SNAP_HZ = 12; // ceiling; the live rate comes from ratePolicy(racers)
 const INPUT_STALE_MS = 2000; // no input for this long -> autopilot (heartbeats arrive every 600 ms)
@@ -39,7 +40,8 @@ export function clientId() {
  *   onFallback({ names, seed, startAtLocal, rule, mySlot })   "let the ducks decide"
  * }
  */
-export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) {
+export function createSession(opts) {
+  let { role, code, name, kind, relayUrl, hooks = {} } = opts;
   const cid = clientId();
   const isHostInit = role === 'host';
   code = isHostInit ? (code || makeRoomCode()) : normalizeRoomCode(code || '') || code;
@@ -63,6 +65,18 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     stats: { snapsIn: 0, inputsIn: 0, inputsOut: 0, snapsOut: 0 },
   };
   const say = (t, lvl = 'info') => hooks.onStatus && hooks.onStatus(t, lvl);
+  // WebRTC star for race traffic (frames down, inputs up); Realtime keeps lobby + signalling + any peer that can't connect
+  const rtcWanted = opts.rtc !== false && !(typeof location !== 'undefined' && /[?&]rtc=0/.test(location.search));
+  const rtc = createRtcStar({
+    cid,
+    isHost: () => s.isHost,
+    hostCid: () => lobby.hostCid,
+    signal: (to, kind, data) => room && room.send('control', kind, { to, from: cid, ...data }),
+    onFrame: (f) => onFrameIn(f, true),
+    onInput: (from, p) => onInputIn({ ...p, c: from }),
+    onChange: () => updateStateSubscription(),
+  });
+  let lastFrameTick = -1;
   const emitLobby = () => hooks.onLobby && hooks.onLobby(lobby, s);
   function dispatch(a) { lobby = reduce(lobby, { now: Date.now(), ...a }); emitLobby(); }
 
@@ -80,9 +94,9 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     wire();
     // announce ourselves; guests wait for the host's roster to learn who the host is
     dispatch({ type: 'hello', cid, name, role: role === 'spectator' ? ROLES.spectator : undefined });
-    room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION });
+    room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported });
     if (s.isHost) broadcastRoster();
-    else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION }); }, 1500); }
+    else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported }); }, 1500); }
     pingTimer = setInterval(sendPing, 3000);
     for (let k = 1; k <= 6; k++) setTimeout(sendPing, k * 180); // quick burst to lock the clock
     return s;
@@ -112,6 +126,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       dispatch({ type: 'hello', cid: p.cid, name: p.name, role: p.role === 'spectator' ? ROLES.spectator : undefined });
       if (s.isHost) {
         broadcastRoster();
+        if (rtcWanted && rtc.supported && p.rtc !== false) rtc.connectTo(p.cid); // open a data-channel link to this participant
         // someone (re)joined mid-race: hand them the running race so they drop straight in (their duck is on autopilot until their first input)
         if (lastStartMsg && (lobby.phase === 'countdown' || lobby.phase === 'race')) room.send('control', MSG.start, { ...lastStartMsg, hostNow: performance.now() });
         if (lastOverMsg && lobby.phase === 'results') room.send('control', MSG.over, lastOverMsg);
@@ -140,14 +155,9 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     room.on('control', MSG.abort, (p) => { if (!s.isHost) hostLost(p.reason || 'Race stopped by the host'); });
     room.on('control', MSG.fallback, (p) => { if (!s.isHost) runFallback(p); });
     room.on('control', 'kick', (p) => { if (p.cid === cid) { say('Removed by the host', 'error'); leave(); hooks.onAbort && hooks.onAbort('Removed by the host'); } else dispatch({ type: 'forget', cid: p.cid }); });
+    for (const kindSig of ['rtc-offer', 'rtc-answer', 'rtc-ice']) room.on('control', kindSig, (p) => { if (p.to === cid) rtc.onSignal(p.from, kindSig, p); });
     // ---- input channel (host consumes)
-    room.on('input', MSG.input, (p) => {
-      if (!s.isHost) return;
-      s.stats.inputsIn++;
-      const slot = slotOf(p.c);
-      if (slot >= 0) { inputs[slot] = p.s; inputAt[slot] = Date.now(); }
-      seen(p.c);
-    });
+    room.on('input', MSG.input, (p) => onInputIn(p));
     room.on('input', MSG.ping, (p) => {
       if (!s.isHost) return;
       // during a race the pong rides inside the next frame (no extra fan-out message); in the lobby answer directly
@@ -161,16 +171,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       clock.addSample(p.t0, performance.now(), p.th);
       s.lastHostSeen = Date.now();
     });
-    room.on('state', MSG.frame, (f) => {
-      if (s.isHost) return;
-      const nowP = performance.now();
-      s.lastHostSeen = Date.now();
-      s.stats.snapsIn++;
-      if (f.p) for (const pg of f.p) if (pg[0] === cid) clock.addSample(pg[1], nowP - Math.max(0, (f.hs || pg[2]) - pg[2]), pg[2]); // pong folded into the frame: discount the time it waited on the host
-      const snap = unpackSnapshot(f.s, unpackTarget);
-      if (snap && s.live && s.live.applySnapshot) s.live.applySnapshot(snap);
-      if (f.e && f.e.length && s.live && s.live.applyEvents) s.live.applyEvents(f.e);
-    });
+    room.on('state', MSG.frame, (f) => onFrameIn(f, false));
     // legacy separate messages (older hosts)
     room.on('state', MSG.snap, (arr) => {
       if (s.isHost) return;
@@ -185,6 +186,40 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     });
   }
   const unpackTarget = { t: 0, tick: 0, ducks: [] };
+  function onInputIn(p) {
+    if (!s.isHost) return;
+    s.stats.inputsIn++;
+    const slot = slotOf(p.c);
+    if (slot >= 0) { inputs[slot] = p.s; inputAt[slot] = Date.now(); }
+    seen(p.c);
+  }
+  function onFrameIn(f, viaRtc) {
+    if (s.isHost) return;
+    const tick = f.s && f.s[1];
+    if (tick !== undefined && tick === lastFrameTick) return; // same frame via both paths
+    lastFrameTick = tick;
+    const nowP = performance.now();
+    s.lastHostSeen = Date.now();
+    s.stats.snapsIn++;
+    if (viaRtc) s.stats.rtcFramesIn = (s.stats.rtcFramesIn || 0) + 1;
+    if (f.p) for (const pg of f.p) if (pg[0] === cid) clock.addSample(pg[1], nowP - Math.max(0, (f.hs || pg[2]) - pg[2]), pg[2]); // pong folded into the frame: discount the time it waited on the host
+    const snap = unpackSnapshot(f.s, unpackTarget);
+    if (snap && s.live && s.live.applySnapshot) s.live.applySnapshot(snap);
+    if (f.e && f.e.length && s.live && s.live.applyEvents) s.live.applyEvents(f.e);
+  }
+  // guests whose data channel to the host is up leave the Realtime state channel (they no longer count in the
+  // broadcast fan-out); if the link drops they re-join it
+  let stateSubTimer = null;
+  function updateStateSubscription() {
+    if (s.isHost || !room || !room.pauseState) return;
+    clearTimeout(stateSubTimer);
+    stateSubTimer = setTimeout(() => {
+      const linked = rtc.hostLinkOpen();
+      if (linked && room.stateSubscribed) { room.pauseState(); s.rtcLinked = true; }
+      else if (!linked && !room.stateSubscribed) { room.resumeState(); s.rtcLinked = false; }
+      else s.rtcLinked = linked;
+    }, 600);
+  }
   function seen(c) { const p = lobby.players[c]; if (p && (!p.online || Date.now() - p.lastSeen > 500)) { lobby = reduce(lobby, { type: 'seen', cid: c, now: Date.now() }); } }
   function slotOf(c) { const p = lobby.players[c]; return p ? p.duck : -1; }
   function sendPing() {
@@ -288,8 +323,13 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       const frame = { s: packSnapshot(hostRace.t, snapTick++, ducks) };
       if (evOut.length) { frame.e = evOut; evOut = []; }
       if (pendingPongs.length) { frame.p = pendingPongs.map((pg) => [pg[0], pg[1], pg[2]]); frame.hs = performance.now(); pendingPongs.length = 0; } // hs: host send time, so clients can subtract the queueing delay
-      room.send('state', MSG.frame, frame);
+      const reached = rtc.sendFrame(frame);
+      // anyone racing/watching that the data channels did not reach still needs the broadcast (fan-out only counts those still subscribed)
+      let uncovered = 0;
+      for (const p of Object.values(lobby.players)) if (p.cid !== cid && p.online && !reached.has(p.cid)) uncovered++;
+      if (uncovered > 0 || !reached.size) room.send('state', MSG.frame, frame);
       s.stats.snapsOut++;
+      s.stats.rtcPeers = reached.size;
     }
     // finish: everyone home, or 25 s after the first human finishes, or 100 s total
     const humanTimes = slotToCid.map((_, i) => hostRace.race.finishTimes[i]).filter((x) => x !== null);
@@ -312,7 +352,11 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       // guest
       if (rt >= 0 && s.mySlot >= 0 && lobby.phase !== 'results') {
         const m = coalescer.offer(mySteer, 0, now);
-        if (m) { room.send('input', MSG.input, { c: cid, t: Math.round(rt * 1000), s: m.s, b: m.b }); s.stats.inputsOut++; }
+        if (m) {
+          const msg = { c: cid, t: Math.round(rt * 1000), s: m.s, b: m.b };
+          if (!rtc.sendInput(msg)) room.send('input', MSG.input, msg);
+          s.stats.inputsOut++;
+        }
       }
       s.live.step(dt, rt, mySteer);
       // host silent for 4 s mid-race -> void
@@ -399,6 +443,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
   }
 
   async function leave() {
+    rtc.closeAll();
     clearInterval(hostTimer);
     clearInterval(helloTimer);
     clearInterval(pingTimer);
@@ -410,6 +455,6 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
   // periodic roster heartbeat from the host (late joiners, lost packets) + connection freshness for the UI
   rosterTimer = setInterval(() => { if (s.isHost && room) broadcastRoster(); emitLobby(); }, 2000);
 
-  Object.assign(s, { connect, setName, claim, spectate, setReady, setConfig, newSeries, handoff, kick, startRace, tick, raceTime, rematch, abortRace, fallback, fallbackOver, leave, seriesStandings: () => seriesStandings(lobby) });
+  Object.assign(s, { connect, setName, claim, spectate, setReady, setConfig, newSeries, handoff, kick, startRace, tick, raceTime, rematch, abortRace, fallback, fallbackOver, leave, rtc, seriesStandings: () => seriesStandings(lobby) });
   return s;
 }

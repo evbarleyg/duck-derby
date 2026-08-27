@@ -51,7 +51,7 @@ log('all racing');
 for (const [i, g] of guests.entries()) { await g.keyboard.down(i % 2 ? 'ArrowLeft' : 'ArrowRight'); setTimeout(() => g.keyboard.up(i % 2 ? 'ArrowLeft' : 'ArrowRight').catch(() => {}), 3000); }
 // sample mid-race: guests receive snapshots, host receives inputs
 await host.waitForTimeout(6000);
-const mid = await Promise.all(everyone.map((p) => p.evaluate(() => { const w = window.__duckWorld; const s = w.session(); return { t: +w.state.t.toFixed(1), snapsIn: s.stats.snapsIn, inputsIn: s.stats.inputsIn, inputsOut: s.stats.inputsOut, snapsOut: s.stats.snapsOut, rtt: Math.round(s.clock.rtt || 0), mySlot: s.mySlot, myS: s.live && s.mySlot >= 0 ? +s.live.ducks[s.mySlot].s.toFixed(0) : null }; })));
+const mid = await Promise.all(everyone.map((p) => p.evaluate(() => { const w = window.__duckWorld; const s = w.session(); return { t: +w.state.t.toFixed(1), snapsIn: s.stats.snapsIn, rtcIn: s.stats.rtcFramesIn || 0, rtcPeers: s.stats.rtcPeers ?? null, via: s.rtcLinked ? 'rtc' : 'relay', inputsIn: s.stats.inputsIn, inputsOut: s.stats.inputsOut, snapsOut: s.stats.snapsOut, rtt: Math.round(s.clock.rtt || 0), mySlot: s.mySlot, myS: s.live && s.mySlot >= 0 ? +s.live.ducks[s.mySlot].s.toFixed(0) : null }; })));
 log('mid-race', JSON.stringify(mid));
 // wait for results everywhere
 for (const p of everyone) await p.waitForFunction(() => window.__duckWorld.state.phase === 'results' && !document.getElementById('results').hidden, null, { timeout: 240000 });
