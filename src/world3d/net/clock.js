@@ -23,6 +23,12 @@ export class ClockSync {
     this.ready = this.samples.length >= 3;
     return this.offset;
   }
+  /** One-way estimate from a host timestamp carried on a broadcast (ignores latency): used only until real samples arrive. */
+  provisional(hostMs, localMs) {
+    if (this.samples.length) return this.offset;
+    this.offset = hostMs - localMs;
+    return this.offset;
+  }
   /** Convert a local timestamp (ms) to host time. */
   toHost(localMs) { return localMs + this.offset; }
   /** Convert a host timestamp (ms) to local time. */

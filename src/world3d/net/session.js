@@ -84,6 +84,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     if (s.isHost) broadcastRoster();
     else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION }); }, 1500); }
     pingTimer = setInterval(sendPing, 700);
+    for (let k = 1; k <= 4; k++) setTimeout(sendPing, k * 150);
     return s;
   }
   let helloTimer = null;
@@ -109,7 +110,12 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     // ---- control channel
     room.on('control', MSG.hello, (p) => {
       dispatch({ type: 'hello', cid: p.cid, name: p.name, role: p.role === 'spectator' ? ROLES.spectator : undefined });
-      if (s.isHost) broadcastRoster();
+      if (s.isHost) {
+        broadcastRoster();
+        // someone (re)joined mid-race: hand them the running race so they drop straight in (their duck is on autopilot until their first input)
+        if (lastStartMsg && (lobby.phase === 'countdown' || lobby.phase === 'race')) room.send('control', MSG.start, { ...lastStartMsg, hostNow: performance.now() });
+        if (lastOverMsg && lobby.phase === 'results') room.send('control', MSG.over, lastOverMsg);
+      }
     });
     room.on('control', MSG.claim, (p) => { dispatch({ type: 'claim', cid: p.cid, duck: p.duck }); if (s.isHost) broadcastRoster(); });
     room.on('control', 'spectate', (p) => { dispatch({ type: 'spectate', cid: p.cid }); if (s.isHost) broadcastRoster(); });
@@ -127,7 +133,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       say(lobby.hostCid === cid ? 'You are now the host' : 'Host changed', 'ok');
       if (s.isHost) broadcastRoster();
     });
-    room.on('control', MSG.start, (p) => { if (!s.isHost) beginCountdown(p); });
+    room.on('control', MSG.start, (p) => { if (!s.isHost && !(s.live && s.raceNo === p.raceNo)) beginCountdown(p); });
     room.on('control', MSG.over, (p) => { if (!s.isHost) finishRace(p); });
     room.on('control', MSG.rematch, () => { if (!s.isHost) { dispatch({ type: 'rematch' }); s.live = null; hooks.onRematch && hooks.onRematch(); } });
     room.on('control', MSG.abort, (p) => { if (!s.isHost) hostLost(p.reason || 'Race stopped by the host'); });
@@ -183,6 +189,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
 
   // ------------------------------------------------------------------ race: host side
   let hostRace = null;
+  let lastStartMsg = null;
+  let lastOverMsg = null;
   const inputs = []; // slot -> latest steer
   const inputAt = []; // slot -> ms
   let snapTick = 0;
@@ -197,7 +205,9 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     const raceSeed = seed ?? (Math.floor(Math.random() * 2 ** 31) >>> 0);
     const startAt = performance.now() + COUNTDOWN_MS; // host clock
     const raceNo = lobby.raceNo + 1;
-    const msg = { startAt, seed: raceSeed, names, cids: slotToCid, raceNo, items: lobby.config.items, rule: lobby.config.rule };
+    const msg = { startAt, seed: raceSeed, names, cids: slotToCid, raceNo, items: lobby.config.items, rule: lobby.config.rule, hostNow: performance.now() };
+    lastStartMsg = msg;
+    lastOverMsg = null;
     room.send('control', MSG.start, msg);
     setTimeout(() => room && room.send('control', MSG.start, msg), 400); // belt and braces: a second copy
     beginCountdown(msg, true);
@@ -219,7 +229,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       hostTimer = setInterval(hostLoop, 16);
     } else {
       s.live = createRemoteRace({ names: msg.names, myIndex: s.mySlot, seed: msg.seed });
-      s.startAtLocal = clock.ready ? clock.toLocal(msg.startAt) : performance.now() + COUNTDOWN_MS - 150;
+      if (!clock.samples.length && msg.hostNow) clock.provisional(msg.hostNow, performance.now() - 40); // assume ~40 ms one-way until pings refine it
+      s.startAtLocal = clock.samples.length || msg.hostNow ? clock.toLocal(msg.startAt) : performance.now() + COUNTDOWN_MS - 150;
     }
     snapTick = 0;
     hooks.onCountdown && hooks.onCountdown({ startAtLocal: s.startAtLocal, names: msg.names, mySlot: s.mySlot, seed: msg.seed, raceNo: msg.raceNo, rule: msg.rule });
@@ -295,6 +306,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     const times = {};
     hostRace.race.finishTimes.forEach((ft, i) => { times[i] = ft === null ? null : +ft.toFixed(3); });
     const msg = { order, times, raceNo: s.raceNo, cids: slotToCid, rule: lobby.config.rule };
+    lastOverMsg = msg;
+    lastStartMsg = null;
     room.send('control', MSG.over, msg);
     setTimeout(() => room && room.send('control', MSG.over, msg), 500);
     finishRace(msg);
@@ -315,6 +328,8 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
   }
   function rematch() {
     if (!s.isHost) return;
+    lastStartMsg = null;
+    lastOverMsg = null;
     clearInterval(hostTimer);
     room.send('control', MSG.rematch, {});
     dispatch({ type: 'rematch' });

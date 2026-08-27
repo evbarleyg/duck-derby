@@ -492,3 +492,12 @@ body.online #hud-item, body.online #hud-leader { display: none; }
   #ol-qr { width: 84px; height: 84px; }
   #ol-ducks { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
 }
+/* generic buttons inside the online lobby */
+#online button { font: 800 0.9rem var(--font); border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.1); color: #fff; padding: 0.45rem 0.8rem; cursor: pointer; }
+#online button:hover { background: rgba(255,255,255,0.16); }
+#online button.primary { background: var(--gold); color: var(--ink); border-color: transparent; }
+#online button.primary.big { font: 900 1.2rem var(--num); letter-spacing: 0.04em; padding: 0.8rem 1rem; box-shadow: 0 5px 0 #b37d00; text-transform: uppercase; font-style: italic; }
+#online button.linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 4px 2px; font-weight: 600; font-size: 0.82rem; }
+#online button.ghost { background: rgba(255,255,255,0.06); color: #dfe9f5; font-weight: 700; font-size: 0.82rem; }
+#ol-roster li { grid-template-columns: 1.6rem 1.7rem minmax(0, 1fr) auto auto auto; }
+#ol-ready.on { background: #35c46a !important; box-shadow: 0 5px 0 #1d7f41 !important; color: #062812 !important; }

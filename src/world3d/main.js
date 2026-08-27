@@ -197,7 +197,8 @@ async function boot() {
   $('#boot').classList.add('out');
   setTimeout(() => $('#boot').remove(), 700);
   initSetupUi();
-  if (urlFlags.get('room')) goOnline(urlFlags.get('as') === 'tv' ? 'spectator' : 'guest', urlFlags.get('room'));
+  if (urlFlags.get('gp') && showPermalinkResult()) { /* league record view */ }
+  else if (urlFlags.get('room')) goOnline(urlFlags.get('as') === 'tv' ? 'spectator' : 'guest', urlFlags.get('room'));
   else if (urlFlags.get('host') === '1') goOnline('host');
   else if (params.names && (params.autostart || urlFlags.get('autostart') === '1')) startRace({ fromUrl: true });
   else setPhase('menu');
@@ -278,8 +279,9 @@ function initSetupUi() {
   els.optFly.addEventListener('change', () => (state.fly = els.optFly.checked));
   els.optSound.addEventListener('change', () => { state.sound = els.optSound.checked; audio.setEnabled(state.sound); hud.setMuted(!state.sound); });
   els.start.addEventListener('click', () => { if (!state.shared) state.go = null; startRace({}); });
-  $('#btn-host').addEventListener('click', () => goOnline('host'));
-  $('#btn-join').addEventListener('click', () => { const c = $('#join-code').value.trim(); if (c) goOnline('guest', c); });
+  $('#btn-host').addEventListener('click', () => { if (Q.mobile) steerInput.enableTilt(); goOnline('host'); });
+  $('#btn-join').addEventListener('click', () => { const c = $('#join-code').value.trim(); if (!c) return; if (Q.mobile) steerInput.enableTilt(); goOnline('guest', c); });
+  $('#ol-ready').addEventListener('click', () => { if (Q.mobile && !steerInput.tilt.on) steerInput.enableTilt(); if (state.sound) audio.unlock(); requestWakeLock(); });
   $('#join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-join').click(); });
   $('#btn-trial').addEventListener('click', async () => { state.go = null; if (Q.mobile) await steerInput.enableTilt(); startRace({ trial: true }); });
   // results
@@ -423,7 +425,6 @@ async function goOnline(role, code = null) {
   history.replaceState(null, '', `?room=${session.code}${urlFlags.get('relay') ? '&relay=' + encodeURIComponent(urlFlags.get('relay')) : ''}`);
   try {
     await session.connect();
-    if (Q.mobile && role !== 'spectator') steerInput.enableTilt();
     requestWakeLock();
   } catch (e) {
     lobbyUi.setStatus(`Could not connect (${e.message || e}). Check the connection and reload.`, 'error');
@@ -435,10 +436,18 @@ function showOnlineLobby(msg) {
   $('#net-banner').hidden = true;
   if (lobbyUi) { lobbyUi.show(true); lobbyUi.render(session.lobby); if (msg) lobbyUi.setStatus(msg, 'ok'); }
   hud.show(false);
-  state.trial = null;
+  parkRace();
   if (state.phase !== 'menu') { setPhase('menu'); }
   els.setup.hidden = true; // setPhase('menu') shows the setup panel; the lobby replaces it while online
   rig.setMode('flythrough');
+}
+/** Drop the current race objects (live or seeded) so the render loop idles until the next start. */
+function parkRace() {
+  state.trial = null;
+  state.race = null;
+  state.duckStates = [];
+  clearDucks();
+  $('#hud-net').hidden = true;
 }
 async function leaveOnline(toMenu) {
   const sess = session;
@@ -451,7 +460,7 @@ async function leaveOnline(toMenu) {
   if (wakeLock) { try { wakeLock.release(); } catch { /* ignore */ } wakeLock = null; }
   if (sess) await sess.leave();
   history.replaceState(null, '', location.pathname);
-  if (toMenu) { state.trial = null; setPhase('menu'); }
+  if (toMenu) { parkRace(); setPhase('menu'); }
 }
 /** Countdown scheduled by the host: build the ducks for this roster and run grid -> countdown so GO lands on startAt. */
 function onOnlineCountdown({ startAtLocal, names, mySlot }) {
@@ -462,6 +471,12 @@ function onOnlineCountdown({ startAtLocal, names, mySlot }) {
 function onOnlineOver({ order, times, names, rule, picks }) {
   // canonical result from the host: make sure our race object agrees, then podium + results (= draft order)
   state.rule = rule;
+  if (lobbyUi) lobbyUi.show(false);
+  if (!state.race || !state.trial || state.raceNames.length !== names.length) {
+    // we did not run this race (joined after it ended): show it from the message
+    showStaticResult({ names, order, times: order.map((i) => times[i]), rule });
+    return;
+  }
   if (state.race) { state.race.order = order.slice(); order.forEach((i) => { if (times[i] != null) state.race.finishTimes[i] = times[i]; }); }
   state.lastFinishT = Math.max(0, ...Object.values(times).filter((x) => x != null));
   state.podium = true;
@@ -476,7 +491,7 @@ function onOnlineAbort(reason) {
   $('#net-banner').hidden = false;
   $('#nb-ok').onclick = () => { $('#net-banner').hidden = true; if (session) showOnlineLobby(); else setPhase('menu'); };
   hud.show(false);
-  state.trial = null;
+  parkRace();
 }
 /** Emergency mode: the seeded race, same names + seed on every phone, chase cam on my duck, synced start. */
 function onOnlineFallback({ names, seed, startAtLocal, rule, items, mySlot }) {
@@ -487,6 +502,75 @@ function onOnlineFallback({ names, seed, startAtLocal, rule, items, mySlot }) {
   state.camChoice = mySlot >= 0 ? String(mySlot + 1) : 'leader';
   state.go = Date.now() + (startAtLocal - performance.now());
   startRace({ names, fromUrl: true });
+}
+/** Results permalink for the league record (no network needed to view it). */
+function resultLink() {
+  const race = state.race;
+  if (!race) return location.href;
+  const q = new URLSearchParams();
+  q.set('gp', session ? session.code : 'local');
+  q.set('names', state.raceNames.map((n) => n.replace(/~/g, '-')).join('~'));
+  q.set('order', race.order.join(','));
+  q.set('times', race.order.map((i) => (race.finishTimes[i] == null ? '' : race.finishTimes[i].toFixed(2))).join(','));
+  q.set('rule', state.rule === 'l' ? 'l' : 'w');
+  return `${location.origin}${location.pathname}?${q.toString()}`;
+}
+function showPermalinkResult() {
+  const names = (urlFlags.get('names') || '').split('~').map((s) => s.slice(0, 22)).filter(Boolean);
+  const order = (urlFlags.get('order') || '').split(',').map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x < names.length);
+  if (names.length < 1 || order.length !== names.length) return false;
+  const times = (urlFlags.get('times') || '').split(',').map((x) => (x === '' ? null : Number(x)));
+  state.permalink = urlFlags.get('gp');
+  state.online = false;
+  return showStaticResult({ names, order, times, rule: urlFlags.get('rule') });
+}
+/** Results + podium for a race this page did not run (permalink view, or joining a room after the race ended). */
+function showStaticResult({ names, order, times, rule }) {
+  state.rule = rule === 'l' ? 'l' : 'w';
+  state.raceNames = names;
+  state.names = names;
+  state.looks = assignLooks(names, 0);
+  const finishTimes = names.map(() => null);
+  order.forEach((i, k) => { finishTimes[i] = times[k] ?? null; });
+  state.race = { trial: true, count: names.length, order, finishTimes, photoFinish: false, close: false, margin: order.length > 1 && finishTimes[order[1]] != null && finishTimes[order[0]] != null ? finishTimes[order[1]] - finishTimes[order[0]] : 0, leadChanges: 0, events: [], stats: names.map(() => ({ hitsTaken: 0, timeLed: 0, itemsUsed: 0 })), trackLength: L, v0: 23, windows: names.map(() => []), projectiles: [], itemsOn: false };
+  // a static "live" object parked past the line so the shared trial-state path can pose the podium
+  state.trial = {
+    race: state.race,
+    ducks: names.map((_, i) => ({ i, s: L + 6 + order.indexOf(i) * 1.5, lat: (i % 2 ? 1 : -1) * 2, v: 0, state: { i, s: L + 6 + order.indexOf(i) * 1.5, lat: (i % 2 ? 1 : -1) * 2, v: 0, t: 99, rank: order.indexOf(i), finished: true, win: {}, held: null } })),
+    standings: order.map((i) => ({ i, s: L + 100 - order.indexOf(i) })),
+    leader: order[0],
+    playerIndex: -1,
+    pads: [],
+    logs: [],
+    done: true,
+    drain: () => [],
+  };
+  // ducks for the podium
+  clearDucks();
+  state.looks.forEach((look, i) => {
+    const duck = buildDuck(look);
+    const anim = new DuckAnimator(duck, track, i);
+    const tag = makeNameTag(names[i], look.towel, look.number);
+    tag.position.set(0, 2.25, 0);
+    duck.group.add(tag);
+    const item = makeItemSprite();
+    duck.group.add(item);
+    scene.add(duck.group);
+    state.ducks.push({ duck, anim, tag, item });
+  });
+  state.splashTimes = names.map(() => []);
+  state.timeline = [];
+  state.lastFinishT = Math.max(0, ...finishTimes.filter((x) => x != null));
+  state.t = state.lastFinishT + 2;
+  state.follow = 'leader';
+  state.target = order[0];
+  hud.setRoster(state.looks);
+  els.setup.hidden = true;
+  state.podium = true;
+  computeDuckStates(state.t);
+  setPhase('results');
+  rig.setMode('podium');
+  return true;
 }
 function updateNetPill() {
   const pill = $('#hud-net');
@@ -578,7 +662,7 @@ function startRace({ fromUrl = false, names = null, trial = false, online = null
   else fx.planHotdogs({ events: [] }, [], () => null, () => 0);
   resetPlayback();
   saveStore();
-  if (!fromUrl || !params.autostart) history.replaceState(null, '', '?' + shareQuery(true));
+  if (!online && !state.trial && (!fromUrl || !params.autostart)) history.replaceState(null, '', '?' + shareQuery(true));
   els.setup.hidden = true;
   els.results.hidden = true;
   hud.show(true);
@@ -591,10 +675,17 @@ function startRace({ fromUrl = false, names = null, trial = false, online = null
   if (online) {
     // GO must land on the host's startAt: grid absorbs the slack, countdown is the fixed 2.4 s
     state.go = Date.now() + (online.startAtLocal - performance.now());
-    state.gridT = Math.max(0.3, (state.go - Date.now()) / 1000 - 2.4);
-    hud.say(online.mySlot >= 0 ? (Q.mobile ? 'Tilt to steer · hit the arrows, dodge the logs' : 'Steer with ← → · hit the arrows, dodge the logs') : 'Spectating — TV view', state.realTime, 4, 3);
+    const until = (state.go - Date.now()) / 1000;
     if (online.mySlot < 0) { state.view = 'tv'; state.follow = 'leader'; }
-    setPhase('grid');
+    if (until < 0.2) {
+      // joined (or re-joined) a race that is already running: straight in, no ceremony
+      hud.say(online.mySlot >= 0 ? 'Back in — you have control' : 'Joined as a spectator', state.realTime, 3, 3);
+      setPhase('race');
+    } else {
+      state.gridT = Math.max(0.3, until - 2.4);
+      hud.say(online.mySlot >= 0 ? (Q.mobile ? 'Tilt to steer · hit the arrows, dodge the logs' : 'Steer with ← → · hit the arrows, dodge the logs') : 'Spectating — TV view', state.realTime, 4, 3);
+      setPhase('grid');
+    }
   } else if (state.trial) {
     state.go = null;
     hud.say(Q.mobile ? 'Tilt to steer (or touch left / right) · hit the arrows, dodge the logs' : 'Steer with ← → (or A / D) · hit the arrows, dodge the logs', state.realTime, 5, 3);
@@ -1202,15 +1293,17 @@ function haptic(pattern) {
 function showResults() {
   const race = state.race;
   const order = race.order;
-  const trial = !!state.trial && !state.online;
+  const trial = !!state.trial && !state.online && !state.permalink; // Tilt Trial texts only for the solo mode
   const picks = trial ? order.slice() : draftOrder(order, state.rule);
   const winner = state.raceNames[order[0]];
-  $('#res-title').textContent = trial ? 'Tilt Trial' : state.online ? 'Grand Prix — draft order' : 'Draft order';
+  $('#res-title').textContent = trial ? 'Tilt Trial' : state.online || state.permalink ? 'Grand Prix — draft order' : 'Draft order';
   $('#res-rule').textContent = trial ? 'Skill mode · not a draft race' : state.rule === 'l' ? 'Last place picks first' : 'Winner picks first';
-  $('#res-seed').textContent = trial ? `course of the day · ${state.trialSeed.slice(6)}` : state.online ? `room ${session ? session.code : ''} · race ${session ? session.raceNo : ''}` : 'seed ' + seedToCode(state.seed);
+  $('#res-seed').textContent = trial ? `course of the day · ${state.trialSeed.slice(6)}` : state.online ? `room ${session ? session.code : ''} · race ${session ? session.raceNo : ''}` : state.permalink ? `Grand Prix result · room ${state.permalink}` : 'seed ' + seedToCode(state.seed);
   const minePlace = state.follow === 'fixed' ? order.indexOf(state.target) + 1 : 0;
   const minePick = minePlace ? picks.indexOf(state.target) + 1 : 0;
-  if (trial) {
+  if (state.online || state.permalink) {
+    els.resSub.textContent = (minePlace ? `You: pick ${minePick} (${ordinal(minePlace)}) · ` : '') + `${winner} won${race.margin ? ` by ${race.margin.toFixed(2)} s` : ''} · ${state.raceNames.length} racers`;
+  } else if (trial) {
     const me = state.trial.ducks[state.trial.playerIndex];
     const pbTxt = state.trialPB && state.trialDelta !== null ? ' · NEW PERSONAL BEST' : state.trialPB ? ' · first run on today’s course (ghost saved)' : state.trialDelta !== null ? ` · ${state.trialDelta.toFixed(2)} s off your best` : '';
     els.resSub.textContent = `You finished ${ordinal(minePlace)} in ${fmtTime(race.finishTimes[state.target])} · ${me.padsHit} boost arrows · ${me.logsHit} logs hit${pbTxt}`;
@@ -1256,7 +1349,8 @@ function showResults() {
   els.resBoard.classList.toggle('dense', picks.length > 8);
   // only scroll to my row when it can't be seen together with pick 1
   if (myRow) setTimeout(() => { if (myRow.offsetTop + myRow.offsetHeight > els.resBoard.scrollTop + els.resBoard.clientHeight) myRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 700);
-  history.replaceState(null, '', '?' + shareQuery(true));
+  if (state.online || state.permalink) history.replaceState(null, '', resultLink().slice(location.origin.length));
+  else if (!state.trial) history.replaceState(null, '', '?' + shareQuery(true));
 }
 /** One duck's story, from the sim's events (pickups, hits given/taken, the Drop, leads, kick, finish). */
 function duckLog(i) {
@@ -1312,6 +1406,7 @@ function shareQuery(withCam = false) {
   return buildQuery({ names: state.raceNames, seed: state.seed, rule: state.rule, hazards: state.hazards, items: state.items, salt: state.salt, go: state.go, v: ENGINE_VERSION, cam: withCam && state.follow === 'fixed' ? state.target + 1 : null, view: withCam && state.view === 'tv' ? 'tv' : null });
 }
 function shareUrl() {
+  if (state.online || state.permalink) return resultLink();
   const u = new URL(location.href);
   u.search = '?' + shareQuery(false);
   u.hash = '';
@@ -1417,6 +1512,11 @@ async function shareResultImage(btn) {
 }
 function draftText(withUrl = true) {
   const race = state.race;
+  if (state.online || state.permalink) {
+    const picks = draftOrder(race.order, state.rule);
+    const lines = picks.map((i, k) => `Pick ${k + 1} — ${state.raceNames[i]} (${ordinal(race.order.indexOf(i) + 1)}${race.finishTimes[i] != null ? ', ' + fmtTime(race.finishTimes[i]) : ''})`);
+    return `Duck Derby World — Grand Prix draft order (${state.rule === 'l' ? 'last place picks first' : 'winner picks first'})\n${lines.join('\n')}${withUrl ? '\n' + resultLink() : ''}`;
+  }
   if (state.trial) {
     const me = state.trial.playerIndex;
     const lines = race.order.map((i, k) => `${ordinal(k + 1)} — ${state.raceNames[i]} (${fmtTime(race.finishTimes[i])})${i === me ? ' ← me' : ''}`);
@@ -2144,6 +2244,7 @@ window.__duckWorld = {
   resultCard: () => resultCard().toDataURL('image/png'),
   rig,
   session: () => session,
+  resultLink: () => resultLink(),
   /** Deterministic stepping for capture tools: tick(dt) advances and renders one frame; tick(null) resumes real time. */
   tick: (dt) => { state.manual = dt !== null && dt !== undefined; if (state.manual) advance(dt); },
 };
