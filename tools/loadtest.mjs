@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const [kind = 'relay', botsArg = '12', secsArg = '150', relayUrl = 'ws://localhost:8787'] = process.argv.slice(2);
+if (typeof WebSocket === 'undefined') { console.error('Node >= 22 is required (global WebSocket client)'); process.exit(2); }
 const BOTS = Number(botsArg);
 const SECS = Number(secsArg);
 // browser shims for the session module under Node
