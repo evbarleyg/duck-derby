@@ -454,3 +454,11 @@ results, the menu is silent; Replay / seek / a new race restart the music.
   has no result nudges the host every 3 s (the host re-sends `over`). So whichever it was — stale tab or stuck
   finish — it cannot loop indefinitely any more. If Evan hears it again: which page (2D/3D), which screen, and does
   the `[net]` console show anything.
+
+
+**Online results path measured too (executor, same instrumentation idea, relay, 2 clients, 2 races + rematch):**
+race 1 — 91/88 node starts (host/guest) in the first 5 s of results (the outro), then 3/3 in the 5 s window at
+results+11…16 s (the last fireworks booms before their 12 s cap; no music); race 2 after a rematch — 81/86 then
+2/3; back in the lobby after a second rematch — 0/0. So the online path stops too; with `2cff825` the `finish`
+phase and the menu are covered as well. Remaining explanation for Evan's report is the stale tab; a hard reload
+settles it.
