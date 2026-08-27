@@ -14,13 +14,21 @@ Companion to `PHASE4-GRAND-PRIX.md`. Updated as milestones land.
 
 ## Things Evan must do
 
-1. **(NOW THE ONE BLOCKER)** Sign in to supabase.com in Chrome (session expired), open
-   `dashboard → project duck-derby → Realtime → Settings`, and raise the message-rate limit
-   (the "messages/events per second" figure) as high as the plan allows — target ≥ 500. The measured game
-   traffic at 12 players + host is ~300–400 msgs/s counted the way the server counts (fan-out deliveries
-   included), and the current effective limit (~100/s default) kills the channels mid-race — see the
-   verification section below. After the raise, the laptop session re-runs
-   `node tools/loadtest.mjs supabase 12 150` to confirm green.
+1. ~~Raise the Realtime message-rate limit~~ **CHECKED 2026-08-27 (laptop session, Evan's dashboard): NOT
+   RAISABLE on the free plan.** `Realtime → Settings` shows `Max events per second: 100` and
+   `Max presence events per second: 20`, both locked behind "Spend cap needs to be disabled to configure this
+   value — Upgrade to the Pro plan first". So the ceiling is hard at 100 events/s (fan-out counted) unless the
+   org goes Pro. **DECISION NEEDED (Evan) — pick one:**
+   - **(a) Upgrade the Supabase org to Pro** (~$25/mo) and raise the caps → current netcode ships as-is,
+     laptop session re-runs the 12-bot test to confirm. Simplest, costs money for a duck game.
+   - **(b) Keep free Supabase for lobby/signaling only and move race traffic (inputs + snapshots) to WebRTC
+     data channels**, host-authoritative star per the PHASE3 table: lobby joins/roster/countdown stay well
+     under 100 events/s; the race path becomes peer-to-peer with the host. Known risk: ~10 % of connections
+     need a TURN fallback (needs a free TURN provider or accepts "hotspot fallback" guidance on draft night).
+     Most work for the executor, zero recurring cost, best latency.
+   - **(c) Race traffic through a Vercel WebSocket function relay** (Fluid Compute holds WebSockets; likely
+     needs marketplace Redis as an instance-bridging bus). Middle ground; new moving parts on Vercel.
+   The executor should weigh in with its preference in this file; Evan calls the money question.
 2. *(optional, quality-of-life for the executor)* allow-list `aqguvjeqwjvuyfchldwq.supabase.co` in the cloud
    environment's network settings so the executor can measure live itself; until then the laptop session is the
    live-verification leg (items formerly here — probe + load test — are done, numbers below).
