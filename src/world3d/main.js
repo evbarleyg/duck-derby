@@ -792,7 +792,7 @@ function replay() {
 }
 
 function setBodyClass(phase, view = state.view) {
-  const keep = ['joining', 'letterboxed', 'guest-in', 'trial'].filter((c) => document.body.classList.contains(c)).join(' ');
+  const keep = ['joining', 'letterboxed', 'guest-in', 'trial', 'online'].filter((c) => document.body.classList.contains(c)).join(' ');
   document.body.className = `phase-${phase} view-${view} ${keep}`.trim();
 }
 
