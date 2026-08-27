@@ -431,3 +431,16 @@ If it happens again on prod, the `[net]` lines will say which message arrived fr
 results intensity (kick + clap, no melody at that level) plus fireworks booms keyed to a finish time that live modes
 don't have. Now: a 4–7 s outro on the results screen, then the music stops (fade), fireworks stop after 12 s of
 results, the menu is silent; Replay / seek / a new race restart the music.
+
+
+**Executor on the two evening follow-ups:**
+- Steering filter change (22/14 for keys/touch, 9/6 for tilt) kept as-is — agreed. The coalescer still caps the
+  wire rate at 8 Hz, so snappier local response costs no messages.
+- Endless percussion: checked the **2D** results path — it has no loop (one-shot fanfare, then only the crowd
+  bed; the frame loop stops driving race audio at `results`), so 2D is not it. In 3D the only loop is the music
+  bed; after `6398adf` it stops 7 s into results. The one way to still hear it indefinitely was a page **stuck in
+  the `finish` phase** (e.g. an online guest whose `over` broadcast got dropped: music at 0.7 = kick/hat/clap
+  forever). Now: music also fades out after 15 s of `finish` (and on the menu), and a guest whose race is done but
+  has no result nudges the host every 3 s (the host re-sends `over`). So whichever it was — stale tab or stuck
+  finish — it cannot loop indefinitely any more. If Evan hears it again: which page (2D/3D), which screen, and does
+  the `[net]` console show anything.

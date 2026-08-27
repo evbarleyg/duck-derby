@@ -2020,7 +2020,7 @@ function step(dt) {
   }
   if (audio.crowdGain && state.phase === 'race') { const cl = Math.round((0.3 + 0.6 * (state.excite || 0)) * 20) / 20; if (cl !== state._crowdL) { state._crowdL = cl; audio.setCrowd(cl); } }
   // music: builds through the race, a short outro on the results screen, then silence (no endless drum loop)
-  if (state.phase === 'results' && state.phaseTime > 7) audio.stopMusic(1.2);
+  if ((state.phase === 'results' && state.phaseTime > 7) || (state.phase === 'finish' && state.phaseTime > 15) || (state.phase === 'menu' && !state.online)) audio.stopMusic(1.2); // never an endless loop, whatever phase we get stuck in
   else audio.setMusicIntensity(state.phase === 'race' ? 0.45 + 0.55 * smoothstep(0.3, 1, state.excite || 0) : state.phase === 'countdown' ? 0.35 : state.phase === 'finish' ? 0.7 : state.phase === 'results' ? 0.4 * (1 - smoothstep(4, 7, state.phaseTime)) + 0.12 : 0.22);
   audio.setRate(state.phase === 'race' ? state.rate : 1);
   audio.pumpMusic();

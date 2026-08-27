@@ -317,6 +317,7 @@ export function createSession(opts) {
   // a slow or hidden host tab must not slow the race down for everyone else.
   let mySteerLatest = 0;
   let lastSnapAt = 0;
+  let lastNudge = 0;
   let hostTimer = null;
   function hostLoop() {
     if (!s.isHost || !hostRace || lobby.phase === 'results' || lobby.phase === 'lobby') return;
@@ -375,6 +376,8 @@ export function createSession(opts) {
         }
       }
       s.live.step(dt, rt, mySteer);
+      // results overdue (the `over` broadcast may have been dropped): re-announce ourselves so the host re-sends it
+      if (s.live.done && lobby.phase !== 'results' && now - (lastNudge || 0) > 3000) { lastNudge = now; room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported }); }
       // host silent for 4 s mid-race -> void
       if (rt > 2 && Date.now() - s.lastHostSeen > 4000) hostLost('Lost the host — no data for 4 s');
     }
