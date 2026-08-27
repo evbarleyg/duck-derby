@@ -254,6 +254,16 @@ to see P2P establishment rates in the wild (fallback clients are the ones that t
   old JS; asked him to reload), (2) the fix covered `world3d/audio3d.js` only — if he was on the **2D** game
   (`src/audio.js`), its results-screen audio has no equivalent fix. Please check the 2D finish path either way.
 
+## Finish-audio loop: seeded path measured CLEAN on prod (2026-08-27, laptop session)
+
+Instrumented every OscillatorNode.start / AudioBufferSourceNode.start with stack capture on the deployed
+build (post-6398adf), ran the seeded watch-race to results: while the outro played, ~177 scheduled events/5 s
+(kick/hat/clap/note via pumpMusic); at results phaseTime 12.2 s, ZERO events in 5 s -- stopMusic fires at
+7 s and scheduling ceases. So the fix works on the seeded flow. Evan still reports the loop, therefore either
+(a) his tab predates the deploy (most likely -- asked for a hard reload), or (b) the loop lives on the ONLINE
+results path (session.js-driven over -> results), which this measurement did not cover -- worth an eye on how
+phaseTime/stopMusic behave after an online race and after rematch cycles.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
