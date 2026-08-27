@@ -178,6 +178,33 @@ If the plan caps the quota below ~400/s, the fan-out channel (`:out`) needs a di
 `dashboard → duck-derby → Realtime → Settings`). Once raised, the laptop session re-runs
 `node tools/loadtest.mjs supabase 12 150` and posts the SUMMARY here.
 
+## BUG — live 2-tab repro of Evan's phone report (2026-08-27, laptop session, prod @ 932d0b8)
+
+Evan (real iPhone): "I joined the race but it looked like a different race than what was on my computer and
+when I started the computer race it didn't start the phone race." Reproduced exactly with two Chrome tabs on
+duck-derby.vercel.app — TWO distinct draft-night blockers:
+
+**Bug 1 — cold first load of a `?room=CODE` link falls through to the local attract/fly-through race instead
+of the join lobby.** Tab 2 opened `world.html?room=MRWP` for the first time → after "Inflating ducks…" it went
+straight into the course fly-through camera (no lobby panel, no name entry, never joined the channel), i.e.
+"a different race" on the phone. Reloading the SAME URL then showed the correct join panel ("GRAND PRIX
+ONLINE · ROOM MRWP / Connecting…"). A phone scanning the QR is always a cold load, so this hits every
+first-time joiner. Likely a race between the intro/attract flow starting and the online-join bootstrap
+winning control after asset load; the `?room=` path needs to hard-gate the intro before anything else runs.
+
+**Bug 2 — the Grand Prix host lobby auto-started a solo race with nobody ready.** Host tab: clicked "Host a
+race" (room MRWP, roster only "Duck fan HOST YOU · not ready", button said "Waiting for: Duck fan"), then no
+further interaction. ~45 s later the host tab had run a full 1-duck race and landed on the results permalink
+`?gp=MRWP&names=Duck+fan&order=0&times=39.78&rule=w`, abandoning the room (the joiner then hangs at
+"Connecting…" forever). Prime suspect: the seeded flow's "Start together (45 s lobby with a join QR)" timer
+(checkbox was on in the setup screen) leaking into Grand Prix hosting. The GP lobby must never auto-start,
+and host-side results/permalink navigation must not tear down the room while guests are connected.
+
+Repro steps for both: (1) laptop tab: `/world` → Host a race → do nothing; (2) second device/tab: open the
+room link cold → observe fly-through instead of lobby; (3) wait ~45 s → observe host solo-race + permalink.
+No relevant console output was captured (app logs are quiet on this path — worth adding a `[net]` log line on
+join-mode entry and on any auto-start trigger while debugging this).
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
