@@ -16,7 +16,7 @@
     "ci:net": "node tools/ci-net.mjs 4 40",
     "loadtest": "node tools/loadtest.mjs relay 12 150",
     "relay": "node tools/relay.mjs 8787 --latency=35 --jitter=12",
-    "nettest": "node tools/nettest.mjs 2 && node tools/nettest2.mjs && node tools/rejoin-check.mjs"
+    "nettest": "node tools/nettest.mjs 2 && node tools/nettest2.mjs && node tools/rejoin-check.mjs && node tools/nettest3.mjs"
   },
   "license": "MIT",
   "engines": {

@@ -184,7 +184,8 @@ async function boot() {
     warm.position.copy(camera.position).add(new THREE.Vector3(0, -3, -8).applyQuaternion(camera.quaternion));
     scene.add(warm);
     fx.warmup();
-    if (renderer.compileAsync && renderer.extensions.has('KHR_parallel_shader_compile')) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera);
+    // compileAsync can stall on a cold shader cache on some GPUs: never let boot wait more than 4 s for it
+    if (renderer.compileAsync && renderer.extensions.has('KHR_parallel_shader_compile')) await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 4000))]).catch(() => {}); else renderer.compile(scene, camera);
     renderer.render(scene, camera);
     // also the see-through variant of the duck program (used when a pack-mate is ghosted near the camera)
     for (const mt of sample.glowMats || []) { mt.transparent = true; mt.opacity = 0.5; mt.needsUpdate = true; }
@@ -400,6 +401,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && se
 
 async function goOnline(role, code = null) {
   if (session) await leaveOnline(false);
+  console.info('[net] online mode:', role, code || '(new room)');
+  // nothing from the seeded flows may run while online: no "start together" timer, no shared-link autostart
+  state.go = null;
+  state.shared = false;
   if (state.sound) audio.unlock();
   const name = (stored.myName || '').trim() || 'Duck fan';
   session = createSession({
@@ -439,13 +444,15 @@ function showOnlineLobby(msg) {
   parkRace();
   if (state.phase !== 'menu') { setPhase('menu'); }
   els.setup.hidden = true; // setPhase('menu') shows the setup panel; the lobby replaces it while online
-  rig.setMode('flythrough');
+  rig.setMode('menu');
+  window.scrollTo(0, 0);
 }
 /** Drop the current race objects (live or seeded) so the render loop idles until the next start. */
 function parkRace() {
   state.trial = null;
   state.race = null;
   state.duckStates = [];
+  state.standings = [];
   clearDucks();
   $('#hud-net').hidden = true;
 }
@@ -502,7 +509,7 @@ function onOnlineFallback({ names, seed, startAtLocal, rule, items, mySlot }) {
   state.items = items !== false;
   state.camChoice = mySlot >= 0 ? String(mySlot + 1) : 'leader';
   state.go = Date.now() + (startAtLocal - performance.now());
-  startRace({ names, fromUrl: true });
+  startRace({ names, fromUrl: true, fallback: true });
 }
 /** Results permalink for the league record (no network needed to view it). */
 function resultLink() {
@@ -584,7 +591,8 @@ function updateNetPill() {
   $('#hud-net-text').textContent = (session.isHost ? 'HOST' : `${Math.round(session.clock.rtt || 0)} ms`) + (me && me.autopilot ? ' · AUTOPILOT' : '');
 }
 
-function startRace({ fromUrl = false, names = null, trial = false, online = null } = {}) {
+function startRace({ fromUrl = false, names = null, trial = false, online = null, fallback = false } = {}) {
+  if (state.online && !online && !fallback) { console.warn('[net] blocked a local race start while in an online room', new Error().stack.split('\n')[2]); return; }
   if (state.sound) audio.unlock();
   audio.setEnabled(state.sound);
   const raw = names || state.names;
@@ -673,7 +681,11 @@ function startRace({ fromUrl = false, names = null, trial = false, online = null
   audio.startMusic();
   audio.setMusicIntensity(0.25);
   const PRE = 5600; // grid + countdown before the synchronised start
-  if (online) {
+  if (fallback) {
+    // seeded "let the ducks decide": synced start on the host's clock, no lobby card
+    state.gridT = Math.max(0.8, (state.go - Date.now()) / 1000 - 2.4);
+    setPhase('grid');
+  } else if (online) {
     // GO must land on the host's startAt: grid absorbs the slack, countdown is the fixed 2.4 s
     state.go = Date.now() + (online.startAtLocal - performance.now());
     const until = (state.go - Date.now()) / 1000;
@@ -701,7 +713,7 @@ function startRace({ fromUrl = false, names = null, trial = false, online = null
     if (late > lastT + 8) { window.__duckWorld.results(); }
     else if (late > -0.2) { setPhase('race'); jump(Math.max(0, late)); }
     else { state.gridT = Math.max(0.8, (state.go - Date.now()) / 1000 - 2.4); setPhase('grid'); }
-  } else if (state.go || (state.lobbyOn && !fromUrl && !names)) {
+  } else if (!state.online && (state.go || (state.lobbyOn && !fromUrl && !names))) {
     if (!state.go) { state.go = Date.now() + 45000; history.replaceState(null, '', '?' + shareQuery(true)); }
     setPhase('lobby');
   } else setPhase(state.fly ? 'flythrough' : 'grid');

@@ -351,3 +351,40 @@ sockets, and worse latency than P2P.
 **What I need from the live leg now:** the two-phone test on the deployed site with one laptop hosting —
 confirm the roster shows `P2P` for both phones (or `__duckWorld.session().rtcLinked === true` on the phone), race,
 lock/unlock one phone mid-race. Then, optionally, TURN credentials into `net-config.js`.
+
+
+## Executor response to the 2-tab bug report (2026-08-27)
+
+I could not reproduce either symptom headlessly (returning-user profile with "Start together" on + stored roster,
+host idles 90 s, cold-loaded guest; relay transport and also with Supabase unreachable) — the host stays in the
+lobby and the cold guest lands in a connected lobby every time (`tools/nettest3.mjs` now encodes exactly this and
+passes). So the trigger is something only the live Supabase path produced. The permalink in bug 2
+(`gp=MRWP&names=Duck+fan&order=0&times=39.78`) is what a client writes when it receives an **`over` for a 1-duck
+race** (a results screen is shown from the message even without having raced — that looked like "the host ran a
+solo race"). An `over` can only come from a host sim, so *some* host instance in room MRWP ran a 40 s race; the
+host tab itself could not have (GO was disabled — nobody ready). My best guess is a second host-ish client in the
+same room (an earlier tab/test still attached to MRWP, or the REST fallback echoing) — which the code accepted
+because control messages were not sender-checked. Bug 1 ("fly-through instead of lobby") is consistent with the
+same stray traffic: a `start`/`over` arriving at the freshly joined phone hides the lobby panel and switches the
+camera, and my lobby used the fly-through camera as its backdrop, so "no panel" looked like "a different race".
+
+Changes in this push (defence in depth, since the exact trigger isn't reproducible here):
+
+- **Control messages are now signed with the sender (`from`) and checked**: guests act on
+  `start / over / rematch / abort / fallback / config / handoff / kick / roster` only if they come from the host they
+  know; the host ignores any `start`/`over` (it never needs them) and logs the attempt.
+- **Nothing from the seeded flows can run while online**: `goOnline()` clears the "start together" timer state and
+  the shared-link flag; `startRace()` refuses (and logs) any local start while in a room unless it is the online
+  start or the explicit "let the ducks decide" fallback; the seeded lobby branch is additionally gated on
+  `!state.online`.
+- **Lobby backdrop is the static menu camera**, not the course fly-through, so a lobby can never be mistaken for
+  a running race; the panel scrolls to top when shown.
+- **`[net]` console lines** (as requested): online mode entry, room joined/hosting + transport, start received
+  (with seconds-to-go), host starting race / race over / fallback, and every ignored message with its sender.
+  Filter the console on `[net]`.
+- Boot can no longer stall on `renderer.compileAsync` (4 s cap) — a cold shader cache on a phone GPU was the one
+  first-load-only code path I could find.
+- `tools/nettest3.mjs`: cold-load guest must sit in a connected lobby with the menu camera; idle returning-user
+  host must still be in the lobby (URL `?room=`) after 70 s. PASS here, along with nettest/nettest2/rejoin-check.
+
+If it happens again on prod, the `[net]` lines will say which message arrived from whom — please paste them.

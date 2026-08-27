@@ -258,7 +258,7 @@ export class Hud {
   /** Mini standings: top rows + a window around my duck (contextual on phones). */
   _ladder(ctx) {
     const { ducks, target, standings, names, looks, view } = ctx;
-    if (!standings || !standings.length) return;
+    if (!standings || !standings.length || !ducks[standings[0].i] || standings.length > ducks.length) return; // between races
     const n = standings.length;
     const myRank = ducks[target] ? ducks[target].rank : 0;
     const compact = window.innerWidth <= 760;

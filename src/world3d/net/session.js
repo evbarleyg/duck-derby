@@ -65,6 +65,7 @@ export function createSession(opts) {
     stats: { snapsIn: 0, inputsIn: 0, inputsOut: 0, snapsOut: 0 },
   };
   const say = (t, lvl = 'info') => hooks.onStatus && hooks.onStatus(t, lvl);
+  const netlog = (...a) => { try { console.info('[net]', ...a); } catch { /* ignore */ } };
   // WebRTC star for race traffic (frames down, inputs up); Realtime keeps lobby + signalling + any peer that can't connect
   const rtcWanted = opts.rtc !== false && !(typeof location !== 'undefined' && /[?&]rtc=0/.test(location.search));
   const rtc = createRtcStar({
@@ -83,6 +84,7 @@ export function createSession(opts) {
   // ------------------------------------------------------------------ connect
   async function connect() {
     say('Connecting…');
+    netlog(`${role} entering room ${code}`);
     try {
       room = await openRoom({ kind, code, cid, relayUrl, meta: { name, role } });
     } catch (e) {
@@ -90,6 +92,7 @@ export function createSession(opts) {
       throw e;
     }
     s.connected = true;
+    netlog(`${s.isHost ? 'hosting' : 'joined'} room ${code} as ${cid} via ${room.kind}`);
     say(s.isHost ? 'Hosting' : 'Connected', 'ok');
     wire();
     // announce ourselves; guests wait for the host's roster to learn who the host is
@@ -105,9 +108,13 @@ export function createSession(opts) {
   let pingTimer = null;
   let rosterTimer = null;
 
+  /** Host-authored control message (carries `from` so guests can ignore anyone who is not their host). */
+  function hostSend(type, payload) { if (room) room.send('control', type, { ...payload, from: cid }); }
+  /** Guests: is this control message from the host we know (or do we not know a host yet)? */
+  function fromHost(p) { return !lobby.hostCid || !p || p.from === undefined || p.from === lobby.hostCid; }
   function broadcastRoster() {
     if (!s.isHost || !room) return;
-    room.send('control', MSG.roster, rosterMessage(lobby));
+    hostSend(MSG.roster, rosterMessage(lobby));
   }
 
   function wire() {
@@ -128,8 +135,8 @@ export function createSession(opts) {
         broadcastRoster();
         if (rtcWanted && rtc.supported && p.rtc !== false) rtc.connectTo(p.cid); // open a data-channel link to this participant
         // someone (re)joined mid-race: hand them the running race so they drop straight in (their duck is on autopilot until their first input)
-        if (lastStartMsg && (lobby.phase === 'countdown' || lobby.phase === 'race')) room.send('control', MSG.start, { ...lastStartMsg, hostNow: performance.now() });
-        if (lastOverMsg && lobby.phase === 'results') room.send('control', MSG.over, lastOverMsg);
+        if (lastStartMsg && (lobby.phase === 'countdown' || lobby.phase === 'race')) hostSend(MSG.start, { ...lastStartMsg, hostNow: performance.now() });
+        if (lastOverMsg && lobby.phase === 'results') hostSend(MSG.over, lastOverMsg);
       }
     });
     room.on('control', MSG.claim, (p) => { dispatch({ type: 'claim', cid: p.cid, duck: p.duck }); if (s.isHost) broadcastRoster(); });
@@ -137,24 +144,32 @@ export function createSession(opts) {
     room.on('control', MSG.ready, (p) => { dispatch({ type: 'ready', cid: p.cid, ready: p.ready }); if (s.isHost) broadcastRoster(); });
     room.on('control', MSG.roster, (p) => {
       if (s.isHost) return; // we are the authority
+      if (lobby.hostCid && p.hostCid !== lobby.hostCid && p.from !== lobby.hostCid) { netlog('ignored roster from non-host', p.from); return; }
       s.lastHostSeen = Date.now();
       lobby = reduce(lobby, { type: 'roster', ...p, now: Date.now() });
       if (lobby.players[cid]) s.mySlot = lobby.players[cid].duck;
       emitLobby();
     });
-    room.on('control', MSG.config, (p) => { if (!s.isHost) dispatch({ type: 'config', config: p }); });
+    room.on('control', MSG.config, (p) => { if (!s.isHost && fromHost(p)) { const { from, ...cfg } = p; dispatch({ type: 'config', config: cfg }); } });
     room.on('control', 'newSeries', () => { if (!s.isHost) dispatch({ type: 'newSeries' }); });
     room.on('control', MSG.handoff, (p) => {
+      if (!s.isHost && !fromHost(p)) { netlog('ignored handoff from non-host', p.from); return; }
       dispatch({ type: 'handoff', to: p.to });
       say(lobby.hostCid === cid ? 'You are now the host' : 'Host changed', 'ok');
       if (s.isHost) broadcastRoster();
     });
-    room.on('control', MSG.start, (p) => { if (!s.isHost && !(s.live && s.raceNo === p.raceNo)) beginCountdown(p); });
-    room.on('control', MSG.over, (p) => { if (!s.isHost) finishRace(p); });
-    room.on('control', MSG.rematch, () => { if (!s.isHost) { dispatch({ type: 'rematch' }); s.live = null; hooks.onRematch && hooks.onRematch(); } });
-    room.on('control', MSG.abort, (p) => { if (!s.isHost) hostLost(p.reason || 'Race stopped by the host'); });
-    room.on('control', MSG.fallback, (p) => { if (!s.isHost) runFallback(p); });
-    room.on('control', 'kick', (p) => { if (p.cid === cid) { say('Removed by the host', 'error'); leave(); hooks.onAbort && hooks.onAbort('Removed by the host'); } else dispatch({ type: 'forget', cid: p.cid }); });
+    room.on('control', MSG.start, (p) => {
+      if (s.isHost) { netlog('ignored start while hosting (from', p.from, ')'); return; }
+      if (!fromHost(p)) { netlog('ignored start from non-host', p.from); return; }
+      if (s.live && s.raceNo === p.raceNo) return;
+      netlog('start received', { raceNo: p.raceNo, racers: p.names && p.names.length, inS: Math.round((p.startAt - (clock.samples.length ? clock.toHost(performance.now()) : p.hostNow || p.startAt)) / 100) / 10 });
+      beginCountdown(p);
+    });
+    room.on('control', MSG.over, (p) => { if (s.isHost) { netlog('ignored over while hosting (from', p.from, ')'); return; } if (!fromHost(p)) { netlog('ignored over from non-host', p.from); return; } finishRace(p); });
+    room.on('control', MSG.rematch, (p) => { if (!s.isHost && fromHost(p)) { dispatch({ type: 'rematch' }); s.live = null; hooks.onRematch && hooks.onRematch(); } });
+    room.on('control', MSG.abort, (p) => { if (!s.isHost && fromHost(p)) hostLost(p.reason || 'Race stopped by the host'); });
+    room.on('control', MSG.fallback, (p) => { if (!s.isHost && fromHost(p)) { netlog('fallback (seeded race) from host'); runFallback(p); } });
+    room.on('control', 'kick', (p) => { if (!fromHost(p)) return; if (p.cid === cid) { say('Removed by the host', 'error'); leave(); hooks.onAbort && hooks.onAbort('Removed by the host'); } else dispatch({ type: 'forget', cid: p.cid }); });
     for (const kindSig of ['rtc-offer', 'rtc-answer', 'rtc-ice']) room.on('control', kindSig, (p) => { if (p.to === cid) rtc.onSignal(p.from, kindSig, p); });
     // ---- input channel (host consumes)
     room.on('input', MSG.input, (p) => onInputIn(p));
@@ -232,10 +247,10 @@ export function createSession(opts) {
   function claim(duck) { dispatch({ type: 'claim', cid, duck }); room && room.send('control', MSG.claim, { cid, duck }); if (s.isHost) broadcastRoster(); }
   function spectate() { dispatch({ type: 'spectate', cid }); room && room.send('control', 'spectate', { cid }); if (s.isHost) broadcastRoster(); }
   function setReady(ready) { dispatch({ type: 'ready', cid, ready }); room && room.send('control', MSG.ready, { cid, ready }); if (s.isHost) broadcastRoster(); }
-  function setConfig(cfg) { if (!s.isHost) return; dispatch({ type: 'config', config: cfg }); room.send('control', MSG.config, lobby.config); broadcastRoster(); }
-  function newSeries() { if (!s.isHost) return; dispatch({ type: 'newSeries' }); room.send('control', 'newSeries', {}); broadcastRoster(); }
-  function handoff(to) { if (!s.isHost || !lobby.players[to]) return; room.send('control', MSG.handoff, { to }); dispatch({ type: 'handoff', to }); }
-  function kick(c) { if (!s.isHost) return; room.send('control', 'kick', { cid: c }); dispatch({ type: 'forget', cid: c }); broadcastRoster(); }
+  function setConfig(cfg) { if (!s.isHost) return; dispatch({ type: 'config', config: cfg }); hostSend(MSG.config, lobby.config); broadcastRoster(); }
+  function newSeries() { if (!s.isHost) return; dispatch({ type: 'newSeries' }); hostSend('newSeries', {}); broadcastRoster(); }
+  function handoff(to) { if (!s.isHost || !lobby.players[to]) return; hostSend(MSG.handoff, { to }); dispatch({ type: 'handoff', to }); }
+  function kick(c) { if (!s.isHost) return; hostSend('kick', { cid: c }); dispatch({ type: 'forget', cid: c }); broadcastRoster(); }
 
   // ------------------------------------------------------------------ race: host side
   let hostRace = null;
@@ -258,8 +273,9 @@ export function createSession(opts) {
     const msg = { startAt, seed: raceSeed, names, cids: slotToCid, raceNo, items: lobby.config.items, rule: lobby.config.rule, hostNow: performance.now() };
     lastStartMsg = msg;
     lastOverMsg = null;
-    room.send('control', MSG.start, msg);
-    setTimeout(() => room && room.send('control', MSG.start, msg), 400); // belt and braces: a second copy
+    netlog('host starting race', { raceNo, racers: names.length });
+    hostSend(MSG.start, msg);
+    setTimeout(() => room && hostSend(MSG.start, msg), 400); // belt and braces: a second copy
     beginCountdown(msg, true);
     return true;
   }
@@ -377,8 +393,9 @@ export function createSession(opts) {
     const msg = { order, times, raceNo: s.raceNo, cids: slotToCid, rule: lobby.config.rule };
     lastOverMsg = msg;
     lastStartMsg = null;
-    room.send('control', MSG.over, msg);
-    setTimeout(() => room && room.send('control', MSG.over, msg), 500);
+    netlog('host race over', { order: msg.order });
+    hostSend(MSG.over, msg);
+    setTimeout(() => room && hostSend(MSG.over, msg), 500);
     finishRace(msg);
   }
   function finishRace(msg) {
@@ -402,7 +419,7 @@ export function createSession(opts) {
     lastStartMsg = null;
     lastOverMsg = null;
     clearInterval(hostTimer);
-    room.send('control', MSG.rematch, {});
+    hostSend(MSG.rematch, {});
     dispatch({ type: 'rematch' });
     s.live = null;
     hostRace = null;
@@ -412,7 +429,7 @@ export function createSession(opts) {
   function abortRace(reason = 'Race stopped by the host') {
     if (!s.isHost) return;
     clearInterval(hostTimer);
-    room.send('control', MSG.abort, { reason });
+    hostSend(MSG.abort, { reason });
     dispatch({ type: 'rematch' });
     s.live = null;
     hostRace = null;
@@ -423,8 +440,9 @@ export function createSession(opts) {
     if (!s.isHost) return;
     const rs = racers(lobby);
     const msg = { names: rs.map((p) => p.name), cids: rs.map((p) => p.cid), seed: (Math.floor(Math.random() * 2 ** 31) >>> 0), startAt: performance.now() + 6000, rule: lobby.config.rule, items: lobby.config.items };
-    room.send('control', MSG.fallback, msg);
-    setTimeout(() => room && room.send('control', MSG.fallback, msg), 400);
+    netlog('host: let the ducks decide (seeded fallback)');
+    hostSend(MSG.fallback, msg);
+    setTimeout(() => room && hostSend(MSG.fallback, msg), 400);
     runFallback(msg, true);
   }
   function runFallback(msg, asHost = false) {
@@ -438,7 +456,7 @@ export function createSession(opts) {
     if (!s.isHost) return;
     const rs = racers(lobby);
     const msg = { order, times, raceNo: lobby.raceNo, cids: rs.map((p) => p.cid), rule: lobby.config.rule };
-    room.send('control', MSG.over, msg);
+    hostSend(MSG.over, msg);
     finishRace(msg);
   }
 
