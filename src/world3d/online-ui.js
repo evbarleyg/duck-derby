@@ -73,13 +73,14 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
     // roster
     const now = Date.now();
     const rows = Object.values(lobby.players).sort((a, b) => (a.duck < 0) - (b.duck < 0) || a.duck - b.duck || a.joinedAt - b.joinedAt);
-    const key = JSON.stringify(rows.map((p) => [p.cid, p.name, p.duck, p.ready, p.role, p.online, connQuality(now - p.lastSeen)])) + '|' + lobby.hostCid + isHost + lobby.phase;
+    const key = JSON.stringify(rows.map((p) => [p.cid, p.name, p.duck, p.ready, p.role, p.online, connQuality(now - p.lastSeen), isHost && session.rtc ? session.rtc.isOpen(p.cid) : session.rtcLinked])) + '|' + lobby.hostCid + isHost + lobby.phase;
     if (key !== lastKey) {
       lastKey = key;
       el.roster.innerHTML = rows.map((p) => {
         const tw = p.duck >= 0 ? TOWELS[p.duck % TOWELS.length] : { bg: '#445', text: '#fff' };
         const q = p.cid === session.cid ? 'good' : p.online ? connQuality(now - p.lastSeen) : 'lost';
-        const tags = (p.cid === lobby.hostCid ? '<small>HOST</small>' : '') + (p.role === ROLES.spectator ? '<small>TV</small>' : '') + (p.cid === session.cid ? '<small>YOU</small>' : '');
+        const linked = isHost ? session.rtc && session.rtc.isOpen(p.cid) : p.cid === lobby.hostCid && session.rtcLinked;
+        const tags = (p.cid === lobby.hostCid ? '<small>HOST</small>' : '') + (p.role === ROLES.spectator ? '<small>TV</small>' : '') + (p.cid === session.cid ? '<small>YOU</small>' : '') + (linked ? '<small title="direct peer-to-peer link (no relay quota)">P2P</small>' : '');
         const hostBtns = isHost && p.cid !== session.cid ? `<span>${p.online && p.role !== ROLES.spectator ? `<button class="rowbtn" data-act="host" data-cid="${esc(p.cid)}" title="Make this player the host">host</button>` : ''}${!p.online ? `<button class="rowbtn" data-act="kick" data-cid="${esc(p.cid)}" title="Remove (offline)">remove</button>` : ''}</span>` : '<span></span>';
         return `<li class="${p.cid === session.cid ? 'me' : ''} ${p.online ? '' : 'offline'}"><span class="slot">${p.duck >= 0 ? p.duck + 1 : '–'}</span><span class="sw" style="background:${tw.bg};color:${tw.text}">${p.duck >= 0 ? p.duck + 1 : 'TV'}</span><span class="nm">${esc(p.name || 'Duck')}${tags}</span><span class="rdy ${p.ready ? 'on' : ''}">${p.role === ROLES.spectator ? 'watching' : p.ready ? 'READY' : p.online ? 'not ready' : 'offline'}</span><span class="dot ${q}" title="${q}"></span>${hostBtns}</li>`;
       }).join('');
