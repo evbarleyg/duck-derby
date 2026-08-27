@@ -1620,7 +1620,9 @@ function loop() {
   if (!calm && !NOADAPT) adaptQuality(raw);
 }
 function advance(raw) {
-  const dt = Math.min(raw, 0.05);
+  // playback caps dt (the seeded race simply slows down on a slow frame); live modes (Tilt Trial, online) run on
+  // the wall clock, so the camera and animation must be allowed to catch up or they fall behind the ducks
+  const dt = Math.min(raw, state.trial ? 0.25 : 0.05);
   state.realTime += dt;
   // a synchronised start must track the wall clock even if frames are slow
   state.phaseTime += state.go && (state.phase === 'grid' || state.phase === 'countdown' || state.phase === 'lobby') ? Math.min(raw, 0.5) : dt;

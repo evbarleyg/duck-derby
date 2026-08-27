@@ -349,6 +349,8 @@ export class CameraRig {
       this.userPitch *= 1 - r;
       if (ctx.realTime - this.lastInputAt > 6) this.userZoom += (1 - this.userZoom) * r;
     }
+    // a follow camera that has fallen far behind (a long frame hitch, a seek, a tab switch) cuts instead of crawling back through the scenery
+    if ((this.mode === 'chase' || this.mode === 'tv') && this.pos.distanceTo(desiredPos) > 22) this.snapNext = true;
     const k = this.snapNext ? 1 : 1 - Math.exp(-stiffness * dt);
     this.pos.lerp(desiredPos, k);
     if (this.mode === 'chase') {
