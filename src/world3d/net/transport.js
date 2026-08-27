@@ -37,16 +37,24 @@ function makeEmitter() {
 }
 
 // --------------------------------------------------------------------------------- Supabase Realtime
-let sbClient = null;
+// One client (= one websocket) per openRoom(), NOT a module singleton: supabase-js dedupes channels
+// by topic within a client, so a shared client hands a second logical client in the same process the
+// first one's already-subscribed channel (adding presence handlers to it then throws) — and the load
+// test's bots would all multiplex one socket instead of simulating real devices. A browser tab opens
+// one room, and supabase-js disconnects a client once its last channel is removed, so per-room
+// clients cost nothing in production.
 function supabaseClient(url, key) {
-  if (sbClient) return sbClient;
   const sb = typeof window !== 'undefined' ? window.supabase : null;
   if (!sb || !sb.createClient) throw new Error('supabase-js not loaded (vendor/supabase/supabase.js)');
-  sbClient = sb.createClient(url || NET_CONFIG.supabaseUrl, key || NET_CONFIG.supabaseKey, {
-    realtime: { params: { eventsPerSecond: 40 } },
+  // DDW_NET_DEBUG=1 (Node tools only) streams phoenix socket/channel logs for diagnosing drops
+  const debug = typeof process !== 'undefined' && process.env && process.env.DDW_NET_DEBUG;
+  return sb.createClient(url || NET_CONFIG.supabaseUrl, key || NET_CONFIG.supabaseKey, {
+    realtime: {
+      params: { eventsPerSecond: 40 },
+      ...(debug ? { logger: (kind, msg, data) => console.log('[sb]', kind, msg, data && typeof data === 'object' ? JSON.stringify(data).slice(0, 200) : (data ?? '')) } : {}),
+    },
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  return sbClient;
 }
 
 async function openSupabaseRoom({ code, cid, meta = {}, url, key, subscribe = { control: true, input: true, state: true } }) {
@@ -56,7 +64,21 @@ async function openSupabaseRoom({ code, cid, meta = {}, url, key, subscribe = { 
   const chans = {};
   let presenceCb = () => {};
   const status = { control: 'idle', input: 'idle', state: 'idle' };
-  const openOne = (chan) => new Promise((resolve, reject) => {
+  // a channel join can time out transiently (cold Realtime node, flaky wifi) — retry on a fresh
+  // channel object rather than failing the whole room
+  const openOne = async (chan) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await openOneAttempt(chan);
+      } catch (e) {
+        try { await client.removeChannel(chans[chan]); } catch { /* ignore */ }
+        if (attempt >= 2) throw e;
+        console.warn(`[net] ${chan} join failed (${e.message}), retry ${attempt + 1}`);
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
+  };
+  const openOneAttempt = (chan) => new Promise((resolve, reject) => {
     const isControl = chan === 'control';
     const ch = client.channel(names[chan], {
       config: {

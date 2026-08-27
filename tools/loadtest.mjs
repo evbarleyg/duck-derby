@@ -46,9 +46,15 @@ for (let i = 0; i < BOTS; i++) { const b = mk('guest', 'bot' + (i + 1)); await b
 const deadline = Date.now() + 20000;
 while (Object.keys(host.lobby.players).length < BOTS + 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
 log('host roster size', Object.keys(host.lobby.players).length);
+// ready flags propagate over the real network; wait for the host to see them (the lobby UI gates GO
+// on the same condition) instead of sleeping a fixed interval
+const waitAllReady = async (ms) => {
+  const d = Date.now() + ms;
+  while (!Object.values(host.lobby.players).every((p) => p.ready) && Date.now() < d) await new Promise((r) => setTimeout(r, 200));
+};
 for (const b of bots) b.setReady(true);
 host.setReady(true);
-await new Promise((r) => setTimeout(r, 1500));
+await waitAllReady(15000);
 const mem0 = process.memoryUsage().heapUsed;
 let races = 0;
 const raceStats = [];
@@ -79,7 +85,8 @@ while (Date.now() < endAt) {
   host.rematch();
   await new Promise((r) => setTimeout(r, 800));
   for (const b of bots) b.setReady(true);
-  await new Promise((r) => setTimeout(r, 800));
+  host.setReady(true);
+  await waitAllReady(15000);
 }
 const mem1 = process.memoryUsage().heapUsed;
 console.log('\nSUMMARY', JSON.stringify({ transport: kind, bots: BOTS, races, perRace: raceStats, heapMB: { start: +(mem0 / 1e6).toFixed(1), end: +(mem1 / 1e6).toFixed(1) }, allConverged: raceStats.every((r) => r.converged) }, null, 1));
