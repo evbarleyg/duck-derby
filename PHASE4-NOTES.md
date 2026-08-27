@@ -226,6 +226,23 @@ treatment when convenient: an exaggerated puffed-chest geometry keyed off `look.
 **Done (executor):** `ducks3d.js` builds two vertex-coloured lobes + tufts on `look.chesty`, `animate.js` gives
 them the slow breathing swell (and a prouder puff while boosting). Works in every mode since it rides on `assignLooks`.
 
+## VERIFIED FIXED — live prod re-test of both lobby bugs (2026-08-27, laptop session, after 4b4c926/6398adf)
+
+Two-tab Grand Prix smoke on duck-derby.vercel.app, room NYWD:
+- **Bug 1 (cold `?room=` join fall-through): FIXED** — first-ever load of the room link went straight to the
+  join lobby (name/duck/ready), no fly-through, static menu camera behind it.
+- **Bug 2 (host lobby auto-start): FIXED** — host sat un-touched ~2 minutes (old bug fired at ~45 s), no ghost
+  race, "Waiting for"/"go when you are" gating correct throughout.
+- Full loop: guest joined + readied, roster showed the guest on a **P2P** link (WebRTC established between
+  real prod clients), host started, both tabs entered the synchronized race behind their own ducks (guest on
+  50 ms · AUTOPILOT as designed), and both finished on the IDENTICAL results permalink
+  (`order=1,0 · times=41.48,42.00`). Canonical result agreed.
+- League default roster on the setup screen confirmed live; nice touch.
+
+Grand Prix is GREEN-LIT for a real multi-phone league test. Remaining watch items: real iPhones (tilt
+permission path, reconnect-after-lock) per the phone checklist, and first multi-phone session at 6+ players
+to see P2P establishment rates in the wild (fallback clients are the ones that touch the Realtime caps).
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
