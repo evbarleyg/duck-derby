@@ -588,7 +588,11 @@ function updateNetPill() {
   const age = session.isHost ? 0 : Date.now() - session.lastHostSeen;
   const q = session.isHost ? 'good' : age < 1500 ? 'good' : age < 4000 ? 'fair' : 'poor';
   pill.className = q;
-  $('#hud-net-text').textContent = (session.isHost ? 'HOST' : `${Math.round(session.clock.rtt || 0)} ms`) + (me && me.autopilot ? ' · AUTOPILOT' : '');
+  // AUTOPILOT badge: only after the host has reported it for a sustained half second (no flicker between input sends)
+  const auto = !!(me && me.autopilot);
+  if (auto !== !!state.autoSeen) { state.autoSeen = auto; state.autoSince = state.realTime; }
+  const showAuto = auto && state.realTime - (state.autoSince || 0) > 0.5;
+  $('#hud-net-text').textContent = (session.isHost ? 'HOST' : `${Math.round(session.clock.rtt || 0)} ms`) + (showAuto ? ' · AUTOPILOT (steer to take over)' : '');
 }
 
 function startRace({ fromUrl = false, names = null, trial = false, online = null, fallback = false } = {}) {
