@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initialLobby, reduce, canStart, racers, freeSlot, rosterMessage, pickOrder, connQuality, ROLES } from '../src/world3d/net/lobby.js';
+import { initialLobby, reduce, canStart, racers, freeSlot, rosterMessage, pickOrder, connQuality, seriesStandings, ROLES } from '../src/world3d/net/lobby.js';
 
 const L0 = () => initialLobby({ code: 'ACDE', hostCid: 'host', meCid: 'host', now: 0 });
 
@@ -83,4 +83,28 @@ test('roster echo makes a client converge on the host view', () => {
   assert.equal(connQuality(500), 'good');
   assert.equal(connQuality(3000), 'fair');
   assert.equal(connQuality(20000), 'lost');
+});
+
+test('best-of-3 series: points accumulate, standings and final flag, then a fresh series', () => {
+  let s = L0();
+  for (const cid of ['host', 'a', 'b']) s = reduce(s, { type: 'hello', cid, name: cid, now: 1 });
+  s = reduce(s, { type: 'config', config: { bestOf: 3 }, now: 2 });
+  s = reduce(s, { type: 'over', order: ['a', 'host', 'b'], raceNo: 1, now: 3 }); // a 3, host 2, b 1
+  s = reduce(s, { type: 'over', order: ['a', 'host', 'b'], raceNo: 1, now: 3 }); // duplicate ignored
+  assert.equal(seriesStandings(s).done, 1);
+  s = reduce(s, { type: 'rematch', now: 4 });
+  s = reduce(s, { type: 'over', order: ['b', 'host', 'a'], raceNo: 2, now: 5 }); // b 3+1=4, host 4, a 4
+  let st = seriesStandings(s);
+  assert.equal(st.final, false);
+  assert.deepEqual(st.rows.map((r) => [r.cid, r.points]), [['b', 4], ['host', 4], ['a', 4]], 'tie broken by the latest race');
+  s = reduce(s, { type: 'rematch', now: 6 });
+  s = reduce(s, { type: 'over', order: ['host', 'a', 'b'], raceNo: 3, now: 7 }); // host 7, a 6, b 5
+  st = seriesStandings(s);
+  assert.equal(st.final, true);
+  assert.deepEqual(st.rows.map((r) => r.cid), ['host', 'a', 'b']);
+  // next race starts a new series automatically
+  s = reduce(s, { type: 'rematch', now: 8 });
+  s = reduce(s, { type: 'over', order: ['b', 'a', 'host'], raceNo: 4, now: 9 });
+  assert.equal(seriesStandings(s).done, 1);
+  assert.equal(seriesStandings(s).rows[0].cid, 'b');
 });

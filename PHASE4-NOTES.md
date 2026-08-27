@@ -117,6 +117,25 @@ budget in the brief. Heap for all 13 clients in one Node process: 10.6 → 26 MB
 logs are kept for the results screen; a browser holds one client). `npm run ci:net` runs a 4-bot version in CI.
 **Supabase numbers pending** (item 3 above).
 
+
+## Draft night runbook (host = Evan's laptop)
+
+1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
+   tab visible for the whole session (it runs the authoritative race). Optional: a second laptop/TV joins the same
+   room with "Just watch on this screen (TV mode)" for the big-screen broadcast view.
+2. Everyone scans the QR / opens the link, types their name, taps a duck, taps **Ready** (iPhones get the motion
+   prompt here — "Allow"). The roster shows a green dot per connected phone.
+3. Host picks the rule (winner or last place picks first), format (single race, or series of 3/5 with points), and
+   whether boost arrows/logs are on → **Start**. 3-2-1-GO is synchronised; each phone shows its own chase cam.
+4. If a phone locks or drops: reopen the same link — it lands back in the running race with the same duck (the
+   duck is on autopilot meanwhile). If the host tab dies, every phone shows "Race stopped" → back to the lobby →
+   run it again (nothing is lost except that heat).
+5. Results = the draft order under the chosen rule (or series points after the last race). **Share result** copies
+   a permalink that shows the podium + order on any device, for the league record. **Replay** = rematch (everyone
+   back to the lobby).
+6. If the internet is misbehaving: **Let the ducks decide** in the host controls runs the seeded, non-driven race
+   identically on every phone with zero mid-race traffic.
+
 ## Manual phone checklist (please tick and note device/OS)
 
 - [ ] iPhone Safari: open the room link from the QR → name → duck → Ready; tilt prompt appears on Ready; steering
@@ -133,8 +152,8 @@ logs are kept for the results screen; a browser holds one client). `npm run ci:n
 ## Known gaps (v1)
 
 - No host migration mid-race (by design for v1: race is voided and re-run).
-- Best-of-N is in the lobby state but has no UI yet; items are boost arrows + logs (Mario-Kart item boxes on the
-  host are a follow-up).
+- Items are boost arrows + logs (Mario-Kart item boxes resolved on the host are a follow-up). Series of 3/5 uses
+  simple points (n for 1st … 1 for last, ties broken by the latest race).
 - All live-network verification so far is through the local relay; Supabase runs need Evan's network or the
   sandbox allow-list (see top).
 - Spectator ("TV") view during the race uses the existing TV director; a dedicated big-screen standings layout

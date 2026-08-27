@@ -501,3 +501,7 @@ body.online #hud-item, body.online #hud-leader { display: none; }
 #online button.ghost { background: rgba(255,255,255,0.06); color: #dfe9f5; font-weight: 700; font-size: 0.82rem; }
 #ol-roster li { grid-template-columns: 1.6rem 1.7rem minmax(0, 1fr) auto auto auto; }
 #ol-ready.on { background: #35c46a !important; box-shadow: 0 5px 0 #1d7f41 !important; color: #062812 !important; }
+#ol-series { margin-top: 12px; }
+#ol-series-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+#ol-series-list li { display: grid; grid-template-columns: 1.4rem minmax(0,1fr) auto; gap: 8px; font-size: 0.85rem; padding: 3px 8px; border-radius: 8px; background: rgba(255,255,255,0.05); }
+#ol-series-list li b { color: var(--gold); font-family: var(--num); }

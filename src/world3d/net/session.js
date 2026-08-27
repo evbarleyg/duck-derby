@@ -2,7 +2,7 @@
 // authoritative live race. main.js drives it once per frame and renders whatever `session.live` exposes
 // (a trial-shaped object: the host's sim or the client's RemoteRace).
 import { openRoom } from './transport.js';
-import { initialLobby, reduce, rosterMessage, canStart, racers, ROLES, pickOrder } from './lobby.js';
+import { initialLobby, reduce, rosterMessage, canStart, racers, ROLES, pickOrder, seriesStandings } from './lobby.js';
 import { MSG, FLAG, packSnapshot, unpackSnapshot, InputCoalescer, PROTOCOL_VERSION } from './protocol.js';
 import { ClockSync } from './clock.js';
 import { makeRoomCode, makeClientId, normalizeRoomCode } from './codes.js';
@@ -128,6 +128,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
       emitLobby();
     });
     room.on('control', MSG.config, (p) => { if (!s.isHost) dispatch({ type: 'config', config: p }); });
+    room.on('control', 'newSeries', () => { if (!s.isHost) dispatch({ type: 'newSeries' }); });
     room.on('control', MSG.handoff, (p) => {
       dispatch({ type: 'handoff', to: p.to });
       say(lobby.hostCid === cid ? 'You are now the host' : 'Host changed', 'ok');
@@ -184,6 +185,7 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
   function spectate() { dispatch({ type: 'spectate', cid }); room && room.send('control', 'spectate', { cid }); if (s.isHost) broadcastRoster(); }
   function setReady(ready) { dispatch({ type: 'ready', cid, ready }); room && room.send('control', MSG.ready, { cid, ready }); if (s.isHost) broadcastRoster(); }
   function setConfig(cfg) { if (!s.isHost) return; dispatch({ type: 'config', config: cfg }); room.send('control', MSG.config, lobby.config); broadcastRoster(); }
+  function newSeries() { if (!s.isHost) return; dispatch({ type: 'newSeries' }); room.send('control', 'newSeries', {}); broadcastRoster(); }
   function handoff(to) { if (!s.isHost || !lobby.players[to]) return; room.send('control', MSG.handoff, { to }); dispatch({ type: 'handoff', to }); }
   function kick(c) { if (!s.isHost) return; room.send('control', 'kick', { cid: c }); dispatch({ type: 'forget', cid: c }); broadcastRoster(); }
 
@@ -318,7 +320,9 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
     dispatch({ type: 'over', order: orderCids, times: msg.times, raceNo: msg.raceNo });
     if (s.live && s.live.applyResult) s.live.applyResult(msg.order, msg.times);
     const names = msg.cids.map((c) => (lobby.players[c] ? lobby.players[c].name : '—'));
-    hooks.onOver && hooks.onOver({ order: msg.order, times: msg.times, cids: msg.cids, names, rule: msg.rule || lobby.config.rule, picks: pickOrder(msg.order, msg.rule || lobby.config.rule), raceNo: msg.raceNo });
+    const st = seriesStandings(lobby);
+    const series = lobby.config.bestOf > 1 ? { of: st.of, done: st.done, final: st.final, rows: st.rows.map((r) => ({ slot: msg.cids.indexOf(r.cid), name: lobby.players[r.cid] ? lobby.players[r.cid].name : '—', points: r.points })).filter((r) => r.slot >= 0) } : null;
+    hooks.onOver && hooks.onOver({ order: msg.order, times: msg.times, cids: msg.cids, names, rule: msg.rule || lobby.config.rule, picks: pickOrder(msg.order, msg.rule || lobby.config.rule), raceNo: msg.raceNo, series });
   }
   function hostLost(reason) {
     if (lobby.phase === 'lobby') return;
@@ -383,6 +387,6 @@ export function createSession({ role, code, name, kind, relayUrl, hooks = {} }) 
   // periodic roster heartbeat from the host (late joiners, lost packets) + connection freshness for the UI
   rosterTimer = setInterval(() => { if (s.isHost && room) broadcastRoster(); emitLobby(); }, 2000);
 
-  Object.assign(s, { connect, setName, claim, spectate, setReady, setConfig, handoff, kick, startRace, tick, raceTime, rematch, abortRace, fallback, fallbackOver, leave });
+  Object.assign(s, { connect, setName, claim, spectate, setReady, setConfig, newSeries, handoff, kick, startRace, tick, raceTime, rematch, abortRace, fallback, fallbackOver, leave, seriesStandings: () => seriesStandings(lobby) });
   return s;
 }

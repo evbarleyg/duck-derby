@@ -468,9 +468,10 @@ function onOnlineCountdown({ startAtLocal, names, mySlot }) {
   $('#net-banner').hidden = true;
   startRace({ names, online: { live: session.live, mySlot, startAtLocal } });
 }
-function onOnlineOver({ order, times, names, rule, picks }) {
+function onOnlineOver({ order, times, names, rule, picks, series }) {
   // canonical result from the host: make sure our race object agrees, then podium + results (= draft order)
   state.rule = rule;
+  state.series = series || null; // best-of-N standings (null for single-race format)
   if (lobbyUi) lobbyUi.show(false);
   if (!state.race || !state.trial || state.raceNames.length !== names.length) {
     // we did not run this race (joined after it ended): show it from the message
@@ -1294,14 +1295,19 @@ function showResults() {
   const race = state.race;
   const order = race.order;
   const trial = !!state.trial && !state.online && !state.permalink; // Tilt Trial texts only for the solo mode
-  const picks = trial ? order.slice() : draftOrder(order, state.rule);
+  const series = state.online && state.series ? state.series : null; // best-of-N: picks come from the points table once the series is final
+  const seriesOrder = series ? series.rows.map((r) => r.slot) : null;
+  const picks = trial ? order.slice() : series ? (series.final ? draftOrder(seriesOrder, state.rule) : order.slice()) : draftOrder(order, state.rule);
   const winner = state.raceNames[order[0]];
-  $('#res-title').textContent = trial ? 'Tilt Trial' : state.online || state.permalink ? 'Grand Prix — draft order' : 'Draft order';
+  $('#res-title').textContent = trial ? 'Tilt Trial' : series && !series.final ? `Race ${series.done} of ${series.of}` : series ? 'Series final — draft order' : state.online || state.permalink ? 'Grand Prix — draft order' : 'Draft order';
   $('#res-rule').textContent = trial ? 'Skill mode · not a draft race' : state.rule === 'l' ? 'Last place picks first' : 'Winner picks first';
   $('#res-seed').textContent = trial ? `course of the day · ${state.trialSeed.slice(6)}` : state.online ? `room ${session ? session.code : ''} · race ${session ? session.raceNo : ''}` : state.permalink ? `Grand Prix result · room ${state.permalink}` : 'seed ' + seedToCode(state.seed);
   const minePlace = state.follow === 'fixed' ? order.indexOf(state.target) + 1 : 0;
   const minePick = minePlace ? picks.indexOf(state.target) + 1 : 0;
-  if (state.online || state.permalink) {
+  if (series) {
+    const pts = series.rows.map((r) => `${r.name} ${r.points}`).join(' · ');
+    els.resSub.textContent = series.final ? `Final points: ${pts}` : `${winner} took race ${series.done} · points so far: ${pts} · draft order after race ${series.of}`;
+  } else if (state.online || state.permalink) {
     els.resSub.textContent = (minePlace ? `You: pick ${minePick} (${ordinal(minePlace)}) · ` : '') + `${winner} won${race.margin ? ` by ${race.margin.toFixed(2)} s` : ''} · ${state.raceNames.length} racers`;
   } else if (trial) {
     const me = state.trial.ducks[state.trial.playerIndex];
@@ -1320,7 +1326,7 @@ function showResults() {
     li.className = (place === 1 ? 'first ' : '') + (i === mine ? 'me' : '');
     li.style.setProperty('--me', lk.towel.bg);
     li.title = `${lk.palette.name} · ${lk.hatName}`;
-    li.innerHTML = `<span class="pick">${trial ? ordinal(k + 1) : `Pick <b>${k + 1}</b>`}</span><span class="num" style="background:${lk.towel.bg};color:${lk.towel.text}">${lk.number}</span><span class="nm">${escapeHtml(state.raceNames[i])}${i === mine ? '<span class="you">YOU</span>' : ''}</span><span class="res">${trial ? fmtTime(tt) : `${ordinal(place)} · ${fmtTime(tt)}`}</span>`;
+    li.innerHTML = `<span class="pick">${trial || (series && !series.final) ? ordinal(k + 1) : `Pick <b>${k + 1}</b>`}</span><span class="num" style="background:${lk.towel.bg};color:${lk.towel.text}">${lk.number}</span><span class="nm">${escapeHtml(state.raceNames[i])}${i === mine ? '<span class="you">YOU</span>' : ''}</span><span class="res">${trial ? fmtTime(tt) : series ? `${(series.rows.find((r) => r.slot === i) || { points: 0 }).points} pts · ${fmtTime(tt)}` : `${ordinal(place)} · ${fmtTime(tt)}`}</span>`;
     li.addEventListener('click', () => {
       // tap a row: ride with that duck next time, and expand its race log ("what happened to MY duck")
       setTarget(i, true);

@@ -16,7 +16,8 @@ export function initialLobby({ code, hostCid, meCid, now = 0 }) {
     raceNo: 0,
     startAt: null,
     results: null, // { order:[cid...], times:{cid:sec}, raceNo }
-    wins: {}, // cid -> wins (best-of-N)
+    wins: {}, // cid -> wins
+    series: { points: {}, done: 0 }, // best-of-N: cumulative points (n for 1st … 1 for last), races completed
     updatedAt: now,
   };
 }
@@ -130,17 +131,26 @@ export function reduce(state, a) {
       // adopt the host's view wholesale, but keep our own freshness stamps
       const players = {};
       for (const p of a.players || []) players[p.cid] = { ...(state.players[p.cid] || {}), ...p, lastSeen: (state.players[p.cid] && state.players[p.cid].lastSeen) || now };
-      return { ...state, players, hostCid: a.hostCid ?? state.hostCid, config: a.config ? { ...state.config, ...a.config } : state.config, phase: a.phase || state.phase, raceNo: a.raceNo ?? state.raceNo, updatedAt: now };
+      return { ...state, players, hostCid: a.hostCid ?? state.hostCid, config: a.config ? { ...state.config, ...a.config } : state.config, phase: a.phase || state.phase, raceNo: a.raceNo ?? state.raceNo, series: a.series || state.series, updatedAt: now };
     }
     case 'start':
       return { ...state, phase: 'countdown', startAt: a.startAt, raceNo: a.raceNo ?? state.raceNo + 1, results: null, updatedAt: now };
     case 'racing':
       return { ...state, phase: 'race', updatedAt: now };
     case 'over': {
+      if (state.results && state.results.raceNo === (a.raceNo ?? state.raceNo) && state.phase === 'results') return state; // duplicate delivery
       const wins = { ...state.wins };
       if (a.order && a.order.length) wins[a.order[0]] = (wins[a.order[0]] || 0) + 1;
-      return { ...state, phase: 'results', results: { order: a.order, times: a.times || {}, raceNo: a.raceNo ?? state.raceNo }, wins, updatedAt: now };
+      // series points: a new series starts when the previous one completed
+      const prev = state.series && state.series.done < state.config.bestOf ? state.series : { points: {}, done: 0 };
+      const points = { ...prev.points };
+      const n = a.order ? a.order.length : 0;
+      (a.order || []).forEach((cid, k) => { points[cid] = (points[cid] || 0) + (n - k); });
+      const series = { points, done: prev.done + 1, lastOrder: a.order || [] };
+      return { ...state, phase: 'results', results: { order: a.order, times: a.times || {}, raceNo: a.raceNo ?? state.raceNo }, wins, series, updatedAt: now };
     }
+    case 'newSeries':
+      return { ...state, series: { points: {}, done: 0 }, updatedAt: now };
     case 'rematch': {
       const players = {};
       for (const [cid, p] of Object.entries(state.players)) players[cid] = { ...p, ready: p.role === ROLES.host ? p.ready : false };
@@ -163,6 +173,7 @@ export function rosterMessage(state) {
     config: state.config,
     phase: state.phase,
     raceNo: state.raceNo,
+    series: state.series,
   };
 }
 
@@ -172,6 +183,18 @@ export function rosterMessage(state) {
  */
 export function pickOrder(order, rule) {
   return rule === 'l' ? order.slice().reverse() : order.slice();
+}
+
+/**
+ * Series standings: [{cid, points}] best first; ties broken by the better finish in the latest race.
+ * `final` is true when the configured number of races has been run.
+ */
+export function seriesStandings(state) {
+  const s = state.series || { points: {}, done: 0, lastOrder: [] };
+  const last = s.lastOrder || [];
+  const rows = Object.entries(s.points).map(([cid, points]) => ({ cid, points, last: last.indexOf(cid) < 0 ? 999 : last.indexOf(cid) }));
+  rows.sort((a, b) => b.points - a.points || a.last - b.last);
+  return { rows, done: s.done, of: state.config.bestOf, final: s.done >= state.config.bestOf };
 }
 
 /** Connection quality from last-seen age (ms): 'good' | 'fair' | 'poor' | 'lost'. */

@@ -175,12 +175,14 @@
         <div id="ol-hostbox" hidden>
           <div class="ol-host-h">Host controls</div>
           <label class="opt"><span>Draft rule</span><select id="ol-rule"><option value="w">Winner picks first</option><option value="l">Last place picks first</option></select></label>
+          <label class="opt"><span>Format</span><select id="ol-bestof"><option value="1">Single race decides</option><option value="3">Series of 3 (points)</option><option value="5">Series of 5 (points)</option></select></label>
           <label class="checks-inline"><input type="checkbox" id="ol-items" checked> Boost arrows &amp; logs</label>
           <button id="ol-go" class="primary big" type="button" disabled>Start the Grand Prix</button>
           <div id="ol-go-sub" class="ol-sub">Waiting for everyone to be ready</div>
           <button id="ol-fallback" type="button" class="ghost" title="Emergency mode: no driving — the seeded race plays identically on every phone">Let the ducks decide (no driving)</button>
         </div>
         <div id="ol-guestbox" class="ol-sub">The host starts the race when everyone is ready.</div>
+        <div id="ol-series" hidden><div class="ol-host-h" id="ol-series-h">Series standings</div><ol id="ol-series-list"></ol></div>
       </div>
     </div>
   </div>

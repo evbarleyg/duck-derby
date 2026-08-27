@@ -1,7 +1,7 @@
 // DOM for the Grand Prix Online lobby panel (world.html #online). Pure view: renders a lobby state and calls
 // back into the session for actions. main.js owns phase changes and the 3D side.
 import { TOWELS } from '../ducks.js';
-import { canStart, racers, connQuality, ROLES, MAX_PLAYERS } from './net/lobby.js';
+import { canStart, racers, connQuality, ROLES, MAX_PLAYERS, seriesStandings } from './net/lobby.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -10,7 +10,7 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
   const el = {
     panel: $('#online'), code: $('#ol-code'), status: $('#ol-status'), qr: $('#ol-qr'), copy: $('#ol-copy'), leave: $('#ol-leave'),
     name: $('#ol-name'), ducks: $('#ol-ducks'), ready: $('#ol-ready'), spectate: $('#ol-spectate'), roster: $('#ol-roster'), count: $('#ol-count'),
-    hostbox: $('#ol-hostbox'), guestbox: $('#ol-guestbox'), rule: $('#ol-rule'), items: $('#ol-items'), go: $('#ol-go'), goSub: $('#ol-go-sub'), fallback: $('#ol-fallback'), duckHint: $('#ol-duck-hint'),
+    hostbox: $('#ol-hostbox'), guestbox: $('#ol-guestbox'), rule: $('#ol-rule'), items: $('#ol-items'), bestOf: $('#ol-bestof'), go: $('#ol-go'), goSub: $('#ol-go-sub'), fallback: $('#ol-fallback'), duckHint: $('#ol-duck-hint'), series: $('#ol-series'), seriesH: $('#ol-series-h'), seriesList: $('#ol-series-list'),
   };
   el.code.textContent = session.code;
   // QR + link
@@ -30,6 +30,7 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
   el.fallback.onclick = () => { if (confirm('Let the ducks decide? Nobody drives: the seeded race plays identically on every phone.')) session.fallback(); };
   el.rule.onchange = () => session.setConfig({ rule: el.rule.value });
   el.items.onchange = () => session.setConfig({ items: el.items.checked });
+  el.bestOf.onchange = () => session.setConfig({ bestOf: Number(el.bestOf.value) });
   // duck slot buttons (identity = number + towel colour; palette/hat are dealt at the start from the names)
   el.ducks.innerHTML = '';
   for (let i = 0; i < MAX_PLAYERS; i++) {
@@ -85,20 +86,31 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
       for (const b of el.roster.querySelectorAll('.rowbtn')) b.onclick = () => { if (b.dataset.act === 'host') session.handoff(b.dataset.cid); else session.kick(b.dataset.cid); };
     }
     el.count.textContent = String(racers(lobby).length);
+    // series standings (best-of-N)
+    const st = seriesStandings(lobby);
+    const showSeries = lobby.config.bestOf > 1 && st.done > 0;
+    el.series.hidden = !showSeries;
+    if (showSeries) {
+      el.seriesH.textContent = st.final ? `Series decided after ${st.done} races — final standings` : `Series standings after race ${st.done} of ${st.of}`;
+      el.seriesList.innerHTML = st.rows.map((r, k) => `<li><span>${k + 1}</span><span>${esc(lobby.players[r.cid] ? lobby.players[r.cid].name : '—')}</span><b>${r.points} pt${r.points === 1 ? '' : 's'}</b></li>`).join('');
+    }
     // host controls
     el.hostbox.hidden = !isHost;
     el.guestbox.hidden = isHost;
     if (isHost) {
       if (document.activeElement !== el.rule) el.rule.value = lobby.config.rule;
+      if (document.activeElement !== el.bestOf) el.bestOf.value = String(lobby.config.bestOf);
       el.items.checked = !!lobby.config.items;
       const ok = canStart(lobby);
       el.go.disabled = !ok;
       const rs = racers(lobby);
       const notReady = rs.filter((p) => p.online && !p.ready).map((p) => p.name);
-      el.goSub.textContent = ok ? `${rs.length} racer${rs.length === 1 ? '' : 's'} ready — go when you are` : rs.length === 0 ? 'Nobody has claimed a duck yet' : `Waiting for: ${notReady.join(', ')}`;
+      const raceLabel = lobby.config.bestOf > 1 ? ` · race ${Math.min(st.final ? 1 : st.done + 1, lobby.config.bestOf)} of ${lobby.config.bestOf}` : '';
+      el.go.textContent = lobby.config.bestOf > 1 ? `Start race ${st.final ? 1 : st.done + 1} of ${lobby.config.bestOf}` : 'Start the Grand Prix';
+      el.goSub.textContent = (ok ? `${rs.length} racer${rs.length === 1 ? '' : 's'} ready — go when you are` : rs.length === 0 ? 'Nobody has claimed a duck yet' : `Waiting for: ${notReady.join(', ')}`) + raceLabel;
     } else {
       const host = lobby.players[lobby.hostCid];
-      el.guestbox.textContent = lobby.hostCid ? `${host ? host.name : 'The host'} starts the race when everyone is ready · rule: ${lobby.config.rule === 'l' ? 'last place picks first' : 'winner picks first'}` : 'Looking for the host…';
+      el.guestbox.textContent = lobby.hostCid ? `${host ? host.name : 'The host'} starts the race when everyone is ready · ${lobby.config.rule === 'l' ? 'last place picks first' : 'winner picks first'}${lobby.config.bestOf > 1 ? ` · series of ${lobby.config.bestOf} (points)` : ''}` : 'Looking for the host…';
     }
   }
 
