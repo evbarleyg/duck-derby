@@ -430,3 +430,65 @@ body.guest-in #lobby .lobby-left { display: none; }
 #btn-trial small { display: block; font: 700 0.62rem var(--font); color: var(--muted); letter-spacing: 0.04em; }
 body.trial #hud-item, body.trial #hud-leader { display: none; }
 body.trial #hud-tl::after { content: 'TILT TRIAL · course of the day'; display: block; margin-top: 4px; font: 900 0.6rem var(--num); letter-spacing: 0.12em; color: var(--gold); text-shadow: 0 1px 0 rgba(0,0,0,0.5); }
+
+/* ---------------------------------------------------------------- Grand Prix Online */
+.online-cta { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); }
+.online-title { font: 900 1rem var(--num); letter-spacing: 0.02em; color: var(--gold); margin-bottom: 8px; }
+.online-title small { display: block; font: 600 0.74rem var(--font); color: var(--muted); letter-spacing: 0; }
+.online-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.join-inline { display: inline-flex; gap: 6px; align-items: center; }
+#join-code { width: 6.5rem; text-transform: uppercase; font: 900 1.05rem var(--num); letter-spacing: 0.18em; text-align: center; padding: 0.5rem 0.6rem; border-radius: 10px; border: 1px solid var(--line); background: rgba(0,0,0,0.25); color: #fff; }
+#online .panel-inner { width: min(920px, 100%); }
+.ol-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px; }
+.ol-kicker { font: 900 0.66rem var(--num); letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+.ol-code { font: 900 3.2rem var(--num); letter-spacing: 0.16em; line-height: 1; margin: 2px 0 4px; }
+.ol-status { font-size: 0.82rem; color: var(--muted); }
+.ol-status.ok { color: #8be28b; } .ol-status.error { color: #ff8a80; }
+.ol-share { display: flex; gap: 10px; align-items: center; }
+#ol-qr { width: 104px; height: 104px; background: #fff; border-radius: 10px; padding: 6px; }
+#ol-qr svg { width: 100%; height: 100%; display: block; }
+.ol-share-btns { display: grid; gap: 6px; }
+.ol-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; }
+.ol-me .opt input { width: 100%; }
+.ol-ducks-h, .ol-roster-h, .ol-host-h { font: 900 0.7rem var(--num); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 10px 0 6px; }
+.ol-ducks-h small { text-transform: none; letter-spacing: 0; font: 600 0.7rem var(--font); margin-left: 6px; }
+#ol-ducks { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+#ol-ducks button { aspect-ratio: 1; border-radius: 10px; border: 2px solid rgba(255,255,255,0.2); font: 900 0.9rem var(--num); color: #fff; cursor: pointer; position: relative; padding: 0; }
+#ol-ducks button.mine { outline: 3px solid var(--gold); outline-offset: 1px; }
+#ol-ducks button.taken { opacity: 0.35; cursor: not-allowed; }
+#ol-ducks button .hat { position: absolute; left: 0; right: 0; bottom: 2px; font: 700 0.5rem var(--font); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; opacity: 0.85; }
+#ol-ready { width: 100%; margin-top: 4px; }
+#ol-ready.on { background: #35c46a; box-shadow: 0 4px 0 #1d7f41; color: #062812; }
+#ol-roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+#ol-roster li { display: grid; grid-template-columns: 1.6rem 1.7rem minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 10px; background: rgba(255,255,255,0.06); font-size: 0.9rem; }
+#ol-roster li.me { outline: 2px solid var(--gold); }
+#ol-roster li.offline { opacity: 0.5; }
+#ol-roster .slot { font: 900 0.8rem var(--num); color: var(--muted); text-align: center; }
+#ol-roster .sw { width: 1.5rem; height: 1.5rem; border-radius: 6px; display: grid; place-items: center; font: 900 0.72rem var(--num); border: 2px solid rgba(255,255,255,0.8); }
+#ol-roster .nm { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ol-roster .nm small { font-weight: 700; color: var(--gold); margin-left: 6px; font-size: 0.66rem; letter-spacing: 0.08em; }
+#ol-roster .rdy { font: 900 0.66rem var(--num); letter-spacing: 0.08em; padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,0.1); color: var(--muted); }
+#ol-roster .rdy.on { background: #35c46a; color: #062812; }
+#ol-roster .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; }
+#ol-roster .dot.good { background: #35c46a; } #ol-roster .dot.fair { background: #e6c229; } #ol-roster .dot.poor { background: #e67e22; } #ol-roster .dot.lost { background: #c0392b; }
+#ol-roster .rowbtn { border: 0; background: rgba(255,255,255,0.1); color: #fff; border-radius: 6px; font: 700 0.66rem var(--font); padding: 2px 6px; cursor: pointer; margin-left: 4px; }
+#ol-hostbox { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255,210,63,0.08); border: 1px solid rgba(255,210,63,0.3); display: grid; gap: 8px; }
+.checks-inline { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
+.ol-sub { font-size: 0.8rem; color: var(--muted); }
+#ol-go:disabled { opacity: 0.45; cursor: not-allowed; }
+#net-banner { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(8,14,24,0.72); }
+#net-banner[hidden] { display: none; }
+.nb-card { background: var(--panel-solid, #14243a); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; width: min(420px, 92vw); text-align: center; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+#nb-title { font: 900 1.4rem var(--num); color: #ff8a80; margin-bottom: 6px; }
+#nb-sub { color: var(--muted); margin-bottom: 14px; font-size: 0.92rem; }
+#hud-net { position: fixed; left: calc(12px + var(--safe-l, 0px)); bottom: calc(34px + var(--safe-b, 0px)); z-index: 12; display: flex; gap: 6px; align-items: center; font: 800 0.66rem var(--num); letter-spacing: 0.08em; color: #dfe9f5; background: rgba(13,24,38,0.6); padding: 3px 8px; border-radius: 999px; pointer-events: none; }
+#hud-net[hidden] { display: none; }
+#hud-net i { width: 8px; height: 8px; border-radius: 50%; background: #35c46a; }
+#hud-net.fair i { background: #e6c229; } #hud-net.poor i, #hud-net.lost i { background: #e0533f; }
+body.online #hud-item, body.online #hud-leader { display: none; }
+@media (max-width: 760px) {
+  .ol-grid { grid-template-columns: 1fr; }
+  .ol-code { font-size: 2.4rem; }
+  #ol-qr { width: 84px; height: 84px; }
+  #ol-ducks { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+}

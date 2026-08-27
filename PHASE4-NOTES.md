@@ -7,8 +7,8 @@ Companion to `PHASE4-GRAND-PRIX.md`. Updated as milestones land.
 | Milestone | State | Notes |
 |---|---|---|
 | M1 transport probe | built; **verified against the local relay only** | the cloud build sandbox cannot reach `*.supabase.co` (egress proxy answers 403 to CONNECT). Probe page + script are in the repo and deployed; run them against Supabase from any normal network (below). |
-| M2 lobby | in progress | |
-| M3 race wiring | — | |
+| M2 lobby | **done (relay-verified)** | host/join by code + QR, presence, duck claim, ready gating, rule/items config, host hand-off, kick offline, TV/spectator role; pure reducer with unit tests; `tools/nettest.mjs` |
+| M3 race wiring | **done (relay-verified)** | host-authoritative live sim on a wall-clock timer, ≤10 Hz coalesced inputs up, 12 Hz packed snapshots + event batches down, clock sync, own-duck prediction + reconciliation, 120 ms interpolation for the rest, AI autopilot for stale inputs, canonical results = draft order on every client |
 | M4 hardening | — | |
 | M5 load test | — | |
 
@@ -59,3 +59,19 @@ node tools/netprobe.mjs supabase      # prints the RTT distribution, exits non-z
 ## Known gaps
 
 - (M1) No Supabase numbers yet — sandbox egress.
+
+
+## M2 + M3 — lobby and race wiring (2026-08-27)
+
+`node tools/relay.mjs 8787 --latency=35 --jitter=12`, `npm run serve`, then `node tools/nettest.mjs 2`:
+host + 2 guests in separate browser contexts → roster converges on all three, GO disabled until everyone is
+ready, synced countdown, all three racing (guests steering by keyboard), host receives ~10 inputs/s per guest,
+guests receive 12 snapshots/s, RTT ≈ 75 ms through the relay, and **every client shows the host's canonical
+draft order**; no console errors. (Headless software-GL makes each page slow; the host sim runs on its own
+timer so a slow or hidden host tab cannot slow the race.)
+
+How it maps onto the brief: `net/session.js` (orchestrator: host + guest roles, clock sync, countdown at host
+time, results/rematch/abort/fallback), `net/remote-race.js` (client view: interpolation buffer + own-duck
+prediction, same shape as the Tilt Trial sim so the renderer/HUD are untouched), `trial.js` generalised to N human
+drivers with AI autopilot when a player's input is stale (>1.2 s), `online-ui.js` (lobby panel), `world.html
+?room=CODE` (join) / `?host=1` (host) / `&as=tv` (spectator), Host/Join buttons on the setup screen.

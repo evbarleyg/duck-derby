@@ -18,12 +18,12 @@ export const TRIAL = {
  * createTrial({ names, playerIndex, seed }) → live sim with the same duck-state shape the renderer expects.
  * Obstacles (floating logs) and boost pads are laid out deterministically from the seed.
  */
-export function createTrial({ names, playerIndex = 0, seed = 1, course = getCourse() }) {
+/** Boost pads and logs for a seed (shared by the host sim and remote clients so everyone draws the same course). */
+export function trialLayout(seed, course = getCourse()) {
   const rng = createRng(typeof seed === 'number' ? seed : hashString(String(seed)));
   const L = course.length;
   const F = course.features;
-  const count = names.length;
-  // --- layout: boost pads and logs between the marina exit and the harbour (none on the weir or in the air)
+  // between the marina exit and the harbour; none on the weir or in the air
   const pads = [];
   const logs = [];
   for (let s = 60; s < L - 60; s += rng.range(22, 38)) {
@@ -36,19 +36,30 @@ export function createTrial({ names, playerIndex = 0, seed = 1, course = getCour
     const half = course.widthAt(s) / 2 - 1.4;
     logs.push({ s, lat: rng.range(-half, half), len: rng.range(2.2, 3.6), yaw: rng.range(-0.5, 0.5) });
   }
+  return { rng, pads, logs };
+}
+
+export function createTrial({ names, playerIndex = 0, humans = null, seed = 1, course = getCourse() }) {
+  // `humans`: set of duck indices driven by people (local or remote); everyone else is AI. Defaults to just the
+  // local player (Tilt Trial). Online, the host passes every claimed slot and feeds their steer via step().
+  const humanSet = new Set(humans ? [...humans] : [playerIndex]);
+  const { rng, pads, logs } = trialLayout(seed, course);
+  const L = course.length;
+  const F = course.features;
+  const count = names.length;
   // --- ducks
   const startHalfW = course.widthAt(0) / 2 - 2.5;
   const laneSpacing = Math.min(2.1, (2 * startHalfW) / Math.max(1, count - 1));
   const ducks = names.map((name, i) => ({
     i,
     name,
-    player: i === playerIndex,
+    player: humanSet.has(i),
     s: F.startS - (i % 2 ? 1.2 : 0),
     lat: (i - (count - 1) / 2) * laneSpacing,
     v: 0,
     latV: 0,
     skill: lerp(TRIAL.aiSkill[0], TRIAL.aiSkill[1], rng.next()),
-    cruise: TRIAL.v0 * (i === playerIndex ? 1.0 : 0.955 + (rng.next() - 0.5) * 0.05),
+    cruise: TRIAL.v0 * (humanSet.has(i) ? 1.0 : 0.955 + (rng.next() - 0.5) * 0.05), // identical stats for every human
     wanderPh: rng.range(0, 6.28),
     boostUntil: 0,
     spinUntil: 0,
@@ -85,8 +96,14 @@ export function createTrial({ names, playerIndex = 0, seed = 1, course = getCour
   const path = []; // player's [t, s, lat] samples at ~10 Hz (ghost replays)
   let nextSample = 0;
 
+  /**
+   * step(dt, steer): `steer` is a number (the local player's input, Tilt Trial) or a function (i) => number|null
+   * giving each human duck's latest input; null/undefined means "no fresh input" and the AI brain drives that
+   * duck this tick (autopilot for disconnected players).
+   */
   function step(dt, steer) {
     t += dt;
+    const steerOf = typeof steer === 'function' ? steer : (i) => (i === playerIndex ? steer : null);
     for (const d of ducks) {
       if (d.finishTime !== null) { d.s = Math.min(d.s + d.v * dt, L + 12); d.v = lerp(d.v, 6, dt * 2); continue; }
       const half = course.widthAt(d.s) / 2 - TRIAL.edgeMargin;
@@ -100,11 +117,13 @@ export function createTrial({ names, playerIndex = 0, seed = 1, course = getCour
       if (sec === 'rapids') target *= 0.97 + 0.06 * Math.sin(t * 3 + d.i);
       // light rubber band toward the player so the field stays raceable (skill mode, not the fair engine)
       const player = ducks[playerIndex];
-      if (!d.player && player) target *= 1 + clamp((player.s - d.s) / L, -0.2, 0.2) * 0.6;
+      if (!d.player && player && humanSet.size === 1) target *= 1 + clamp((player.s - d.s) / L, -0.2, 0.2) * 0.6; // solo trial only
       d.v = t < 0 ? 0 : lerp(d.v, target, dt * (d.v < target ? 1.6 : 3));
       // --- steering
       let want;
-      if (d.player) want = steer;
+      const humanSteer = d.player ? steerOf(d.i) : null;
+      d.autopilot = d.player && (humanSteer === null || humanSteer === undefined);
+      if (d.player && !d.autopilot) want = clamp(humanSteer, -1, 1);
       else {
         // AI: wander, line up the next pad, dodge the next log
         let aim = Math.sin(t * 0.5 + d.wanderPh) * half * 0.45;
@@ -189,6 +208,8 @@ export function createTrial({ names, playerIndex = 0, seed = 1, course = getCour
       st.boosting = !!w.boost;
       st.star = false;
       st.spinning = !!w.spin;
+      st.bonk = t < d.bonkUntil;
+      st.autopilot = !!d.autopilot;
       st.held = null;
     }
   }

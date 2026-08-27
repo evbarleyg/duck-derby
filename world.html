@@ -9,6 +9,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="world.css">
 <script src="vendor/qrcode.js" defer></script>
+<script src="vendor/supabase/supabase.js" defer></script>
 <!-- import-map polyfill, fetched only by browsers without native import maps (e.g. iOS < 16.4) -->
 <script>if (!(window.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'))) { var s = document.createElement('script'); s.src = 'vendor/es-module-shims.js'; s.async = true; document.head.appendChild(s); }</script>
 <script type="importmap">
@@ -78,8 +79,15 @@
     </div>
     <div class="cta">
       <button id="btn-start" class="primary big" type="button">Start the race</button>
-      <button id="btn-trial" type="button" class="ghost" title="Phase-3 preview: steer your own duck with tilt / arrow keys — a skill mode, not used for the draft order">Tilt Trial <small>beta · you steer</small></button>
+      <button id="btn-trial" type="button" class="ghost" title="Steer your own duck with tilt / arrow keys against AI ducks (practice)">Tilt Trial <small>practice · you steer</small></button>
       <div id="cta-sub"></div>
+    </div>
+    <div class="online-cta">
+      <div class="online-title">Grand Prix Online <small>everyone drives their own duck, from their own phone</small></div>
+      <div class="online-row">
+        <button id="btn-host" class="primary" type="button">Host a race</button>
+        <span class="join-inline"><input id="join-code" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE" aria-label="Room code"><button id="btn-join" type="button">Join</button></span>
+      </div>
     </div>
     </div>
     <footer class="setup-foot">
@@ -140,6 +148,46 @@
     </div>
   </div>
 </div>
+<section id="online" class="panel" hidden aria-label="Online lobby">
+  <div class="panel-inner">
+    <header class="ol-head">
+      <div>
+        <div class="ol-kicker">Grand Prix Online · room</div>
+        <div class="ol-code" id="ol-code">····</div>
+        <div class="ol-status" id="ol-status">Connecting…</div>
+      </div>
+      <div class="ol-share">
+        <div id="ol-qr"></div>
+        <div class="ol-share-btns"><button id="ol-copy" type="button">Copy link</button><button id="ol-leave" type="button" class="linkish">Leave</button></div>
+      </div>
+    </header>
+    <div class="ol-grid">
+      <div class="ol-me">
+        <label class="opt"><span>Your name</span><input id="ol-name" maxlength="22" autocomplete="off" spellcheck="false" placeholder="Your name"></label>
+        <div class="ol-ducks-h">Your duck <small id="ol-duck-hint">tap a free one</small></div>
+        <div id="ol-ducks"></div>
+        <button id="ol-ready" class="primary big" type="button">Ready</button>
+        <button id="ol-spectate" type="button" class="linkish">Just watch on this screen (TV mode)</button>
+      </div>
+      <div class="ol-roster-col">
+        <div class="ol-roster-h">Racers <span id="ol-count">0</span></div>
+        <ol id="ol-roster"></ol>
+        <div id="ol-hostbox" hidden>
+          <div class="ol-host-h">Host controls</div>
+          <label class="opt"><span>Draft rule</span><select id="ol-rule"><option value="w">Winner picks first</option><option value="l">Last place picks first</option></select></label>
+          <label class="checks-inline"><input type="checkbox" id="ol-items" checked> Boost arrows &amp; logs</label>
+          <button id="ol-go" class="primary big" type="button" disabled>Start the Grand Prix</button>
+          <div id="ol-go-sub" class="ol-sub">Waiting for everyone to be ready</div>
+          <button id="ol-fallback" type="button" class="ghost" title="Emergency mode: no driving — the seeded race plays identically on every phone">Let the ducks decide (no driving)</button>
+        </div>
+        <div id="ol-guestbox" class="ol-sub">The host starts the race when everyone is ready.</div>
+      </div>
+    </div>
+  </div>
+</section>
+<div id="net-banner" hidden><div class="nb-card"><div id="nb-title">Connection lost</div><div id="nb-sub"></div><button id="nb-ok" type="button" class="primary">Back to the lobby</button></div></div>
+<div id="hud-net" hidden><i></i><span id="hud-net-text"></span></div>
+
 <div id="picker" role="dialog" aria-modal="true" aria-label="Choose a duck to ride with" hidden><div class="picker-inner"><h3>Ride with…</h3><ul id="picker-list"></ul><button id="picker-close" type="button">Close</button></div></div>
 
 <section id="results" class="panel" role="dialog" aria-label="Race result and draft order" hidden>

@@ -8,6 +8,8 @@ import { ordinal } from '../commentary.js';
 import { getCourse } from './course.js';
 import { createTrial, ghostAt, dailyTrialSeed } from './trial.js';
 import { SteerInput } from './input.js';
+import { createSession } from './net/session.js';
+import { createLobbyUi } from './online-ui.js';
 import { createRace, positionAt, lateralAt, speedAt, standingsAt, heldAt, activeWindows, timeAt, ENGINE_VERSION } from './race.js';
 import { parseParams, buildQuery, resolveCam, draftOrder } from './params.js';
 import { detectQuality, createRenderer, makeSky, makeLights, PAL } from './gfx.js';
@@ -195,7 +197,9 @@ async function boot() {
   $('#boot').classList.add('out');
   setTimeout(() => $('#boot').remove(), 700);
   initSetupUi();
-  if (params.names && (params.autostart || urlFlags.get('autostart') === '1')) startRace({ fromUrl: true });
+  if (urlFlags.get('room')) goOnline(urlFlags.get('as') === 'tv' ? 'spectator' : 'guest', urlFlags.get('room'));
+  else if (urlFlags.get('host') === '1') goOnline('host');
+  else if (params.names && (params.autostart || urlFlags.get('autostart') === '1')) startRace({ fromUrl: true });
   else setPhase('menu');
   requestAnimationFrame(loop);
 }
@@ -274,6 +278,9 @@ function initSetupUi() {
   els.optFly.addEventListener('change', () => (state.fly = els.optFly.checked));
   els.optSound.addEventListener('change', () => { state.sound = els.optSound.checked; audio.setEnabled(state.sound); hud.setMuted(!state.sound); });
   els.start.addEventListener('click', () => { if (!state.shared) state.go = null; startRace({}); });
+  $('#btn-host').addEventListener('click', () => goOnline('host'));
+  $('#btn-join').addEventListener('click', () => { const c = $('#join-code').value.trim(); if (c) goOnline('guest', c); });
+  $('#join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-join').click(); });
   $('#btn-trial').addEventListener('click', async () => { state.go = null; if (Q.mobile) await steerInput.enableTilt(); startRace({ trial: true }); });
   // results
   $('#btn-replay').addEventListener('click', () => replay());
@@ -355,7 +362,7 @@ function updateCta() {
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
 function loadStore() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { return {}; } }
 function saveStore() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ coached: stored.coached || state.coached || false, flySeen: !!stored.flySeen, names: state.names, rule: state.rule, hazards: state.hazards, items: state.items, fly: state.fly, sound: state.sound, lobby: state.lobbyOn, view: state.view === 'free' ? 'chase' : state.view, cam: state.camChoice })); } catch { /* private mode */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ coached: stored.coached || state.coached || false, flySeen: !!stored.flySeen, myName: stored.myName || '', names: state.names, rule: state.rule, hazards: state.hazards, items: state.items, fly: state.fly, sound: state.sound, lobby: state.lobbyOn, view: state.view === 'free' ? 'chase' : state.view, cam: state.camChoice })); } catch { /* private mode */ }
 }
 
 // --------------------------------------------------------------------------- race lifecycle
@@ -378,7 +385,121 @@ function clearDucks() {
   state.ducks = [];
 }
 
-function startRace({ fromUrl = false, names = null, trial = false } = {}) {
+// =========================================================================== Grand Prix Online
+// A session (net/session.js) owns the room + lobby + host sim / client prediction; this glue maps its hooks onto
+// the existing phase machine: lobby panel -> grid -> countdown -> race (live object rendered like a Tilt Trial)
+// -> results (= draft order under the room's rule). See PHASE4-GRAND-PRIX.md.
+let session = null;
+let lobbyUi = null;
+let wakeLock = null;
+const onlineUrl = (code) => `${location.origin}${location.pathname}?room=${code}`;
+async function requestWakeLock() { try { if (!wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { /* not available */ } }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && session) requestWakeLock(); });
+
+async function goOnline(role, code = null) {
+  if (session) await leaveOnline(false);
+  if (state.sound) audio.unlock();
+  const name = (stored.myName || '').trim() || 'Duck fan';
+  session = createSession({
+    role, code, name,
+    kind: urlFlags.get('relay') ? 'relay' : 'supabase',
+    relayUrl: urlFlags.get('relay') || undefined,
+    hooks: {
+      onLobby: (lob) => { if (lobbyUi) lobbyUi.render(lob); updateNetPill(); },
+      onStatus: (t, lvl) => { if (lobbyUi) lobbyUi.setStatus(t, lvl); },
+      onCountdown: onOnlineCountdown,
+      onRaceEvent: (ev) => handleEvent(ev),
+      onOver: onOnlineOver,
+      onAbort: onOnlineAbort,
+      onRematch: () => showOnlineLobby('Back in the lobby — ready up for the next one'),
+      onFallback: onOnlineFallback,
+    },
+  });
+  lobbyUi = createLobbyUi({ session, shareUrl: onlineUrl, onLeave: () => leaveOnline(true) });
+  $('#ol-name').addEventListener('change', () => { stored.myName = $('#ol-name').value.trim().slice(0, 22); saveStore(); });
+  state.online = true;
+  document.body.classList.add('online');
+  showOnlineLobby();
+  history.replaceState(null, '', `?room=${session.code}${urlFlags.get('relay') ? '&relay=' + encodeURIComponent(urlFlags.get('relay')) : ''}`);
+  try {
+    await session.connect();
+    if (Q.mobile && role !== 'spectator') steerInput.enableTilt();
+    requestWakeLock();
+  } catch (e) {
+    lobbyUi.setStatus(`Could not connect (${e.message || e}). Check the connection and reload.`, 'error');
+  }
+}
+function showOnlineLobby(msg) {
+  els.setup.hidden = true;
+  els.results.hidden = true;
+  $('#net-banner').hidden = true;
+  if (lobbyUi) { lobbyUi.show(true); lobbyUi.render(session.lobby); if (msg) lobbyUi.setStatus(msg, 'ok'); }
+  hud.show(false);
+  state.trial = null;
+  if (state.phase !== 'menu') { setPhase('menu'); }
+  els.setup.hidden = true; // setPhase('menu') shows the setup panel; the lobby replaces it while online
+  rig.setMode('flythrough');
+}
+async function leaveOnline(toMenu) {
+  const sess = session;
+  session = null;
+  state.online = false;
+  document.body.classList.remove('online');
+  if (lobbyUi) lobbyUi.show(false);
+  lobbyUi = null;
+  $('#hud-net').hidden = true;
+  if (wakeLock) { try { wakeLock.release(); } catch { /* ignore */ } wakeLock = null; }
+  if (sess) await sess.leave();
+  history.replaceState(null, '', location.pathname);
+  if (toMenu) { state.trial = null; setPhase('menu'); }
+}
+/** Countdown scheduled by the host: build the ducks for this roster and run grid -> countdown so GO lands on startAt. */
+function onOnlineCountdown({ startAtLocal, names, mySlot }) {
+  lobbyUi.show(false);
+  $('#net-banner').hidden = true;
+  startRace({ names, online: { live: session.live, mySlot, startAtLocal } });
+}
+function onOnlineOver({ order, times, names, rule, picks }) {
+  // canonical result from the host: make sure our race object agrees, then podium + results (= draft order)
+  state.rule = rule;
+  if (state.race) { state.race.order = order.slice(); order.forEach((i) => { if (times[i] != null) state.race.finishTimes[i] = times[i]; }); }
+  state.lastFinishT = Math.max(0, ...Object.values(times).filter((x) => x != null));
+  state.podium = true;
+  lowerThird(null);
+  letterbox(false);
+  setPhase('results');
+  rig.setMode(state.view === 'free' ? 'free' : 'podium');
+}
+function onOnlineAbort(reason) {
+  $('#nb-title').textContent = 'Race stopped';
+  $('#nb-sub').textContent = reason + ' — everyone is back in the lobby; race again when ready.';
+  $('#net-banner').hidden = false;
+  $('#nb-ok').onclick = () => { $('#net-banner').hidden = true; if (session) showOnlineLobby(); else setPhase('menu'); };
+  hud.show(false);
+  state.trial = null;
+}
+/** Emergency mode: the seeded race, same names + seed on every phone, chase cam on my duck, synced start. */
+function onOnlineFallback({ names, seed, startAtLocal, rule, items, mySlot }) {
+  lobbyUi.show(false);
+  state.seed = seed;
+  state.rule = rule;
+  state.items = items !== false;
+  state.camChoice = mySlot >= 0 ? String(mySlot + 1) : 'leader';
+  state.go = Date.now() + (startAtLocal - performance.now());
+  startRace({ names, fromUrl: true });
+}
+function updateNetPill() {
+  const pill = $('#hud-net');
+  if (!session || !state.online || (state.phase !== 'race' && state.phase !== 'countdown' && state.phase !== 'grid')) { pill.hidden = true; return; }
+  pill.hidden = false;
+  const me = session.live && session.mySlot >= 0 && session.live.ducks[session.mySlot] ? session.live.ducks[session.mySlot].state : null;
+  const age = session.isHost ? 0 : Date.now() - session.lastHostSeen;
+  const q = session.isHost ? 'good' : age < 1500 ? 'good' : age < 4000 ? 'fair' : 'poor';
+  pill.className = q;
+  $('#hud-net-text').textContent = (session.isHost ? 'HOST' : `${Math.round(session.clock.rtt || 0)} ms`) + (me && me.autopilot ? ' · AUTOPILOT' : '');
+}
+
+function startRace({ fromUrl = false, names = null, trial = false, online = null } = {}) {
   if (state.sound) audio.unlock();
   audio.setEnabled(state.sound);
   const raw = names || state.names;
@@ -387,8 +508,13 @@ function startRace({ fromUrl = false, names = null, trial = false } = {}) {
   if (!names) state.names = raw.slice();
   if (state.seed == null) state.seed = randomSeed();
   state.raceNames = raceNames;
-  const camIdx0 = state.camChoice === 'leader' ? -1 : resolveCam(state.camChoice, raceNames);
-  if (trial) {
+  const camIdx0 = online ? online.mySlot : state.camChoice === 'leader' ? -1 : resolveCam(state.camChoice, raceNames);
+  if (online) {
+    // Grand Prix Online: the session's live object (host sim or remote view) has the Tilt Trial shape
+    state.trial = online.live;
+    state.race = online.live.race;
+    state.ghost = null;
+  } else if (trial) {
     // Tilt Trial (phase-3 preview): a live sim where you steer your own duck; never used for the draft order
     state.trialSeed = dailyTrialSeed(); // course of the day: same arrows and logs for everyone today
     state.trial = createTrial({ names: raceNames, playerIndex: Math.max(0, camIdx0), seed: state.trialSeed });
@@ -399,7 +525,7 @@ function startRace({ fromUrl = false, names = null, trial = false } = {}) {
     state.trial = null;
     state.race = createRace({ count: raceNames.length, seed: state.seed, hazards: state.hazards, items: state.items });
   }
-  document.body.classList.toggle('trial', !!state.trial);
+  document.body.classList.toggle('trial', !!state.trial && !online);
   rig.lookLocked = !!state.trial && Q.mobile;
   buildTrialProps();
   state.looks = assignLooks(raceNames, state.salt || 0);
@@ -462,7 +588,14 @@ function startRace({ fromUrl = false, names = null, trial = false } = {}) {
   audio.startMusic();
   audio.setMusicIntensity(0.25);
   const PRE = 5600; // grid + countdown before the synchronised start
-  if (state.trial) {
+  if (online) {
+    // GO must land on the host's startAt: grid absorbs the slack, countdown is the fixed 2.4 s
+    state.go = Date.now() + (online.startAtLocal - performance.now());
+    state.gridT = Math.max(0.3, (state.go - Date.now()) / 1000 - 2.4);
+    hud.say(online.mySlot >= 0 ? (Q.mobile ? 'Tilt to steer · hit the arrows, dodge the logs' : 'Steer with ← → · hit the arrows, dodge the logs') : 'Spectating — TV view', state.realTime, 4, 3);
+    if (online.mySlot < 0) { state.view = 'tv'; state.follow = 'leader'; }
+    setPhase('grid');
+  } else if (state.trial) {
     state.go = null;
     hud.say(Q.mobile ? 'Tilt to steer (or touch left / right) · hit the arrows, dodge the logs' : 'Steer with ← → (or A / D) · hit the arrows, dodge the logs', state.realTime, 5, 3);
     setPhase('grid');
@@ -558,6 +691,7 @@ function buildTimeline() {
 function replay() {
   els.results.hidden = true;
   state.go = null;
+  if (state.online && session) { if (session.isHost) session.rematch(); showOnlineLobby(session.isHost ? 'Rematch — everyone ready up' : 'Waiting for the host to start the next race'); return; }
   if (state.trial) { startRace({ names: state.raceNames, trial: true }); return; }
   hud.clearTransient();
   resetPlayback();
@@ -999,7 +1133,7 @@ function handleEvent(ev) {
         state.fireworks = true;
         state.excite = 1;
       }
-      if (state.trial && i === state.trial.playerIndex) {
+      if (state.trial && !state.online && i === state.trial.playerIndex) {
         const prev = state.ghost ? state.ghost.time : null;
         state.trialPB = prev === null || ev.t < prev;
         state.trialDelta = prev === null ? null : ev.t - prev;
@@ -1008,7 +1142,8 @@ function handleEvent(ev) {
           try { localStorage.setItem('ddw:trialGhost', JSON.stringify(state.ghost)); } catch { /* quota / private mode */ }
         }
       }
-      if (isT && state.trial) { showFinishCard(place, null, fmtTime(ev.t) + (state.trialPB && state.trialDelta !== null ? ' · NEW BEST!' : state.trialDelta !== null ? ` · ${state.trialDelta >= 0 ? '+' : '−'}${Math.abs(state.trialDelta).toFixed(2)} vs best` : '')); haptic(200); }
+      if (isT && state.online) { showFinishCard(place, null, `GRAND PRIX · ${fmtTime(ev.t)}`); haptic(200); }
+      else if (isT && state.trial) { showFinishCard(place, null, fmtTime(ev.t) + (state.trialPB && state.trialDelta !== null ? ' · NEW BEST!' : state.trialDelta !== null ? ` · ${state.trialDelta >= 0 ? '+' : '−'}${Math.abs(state.trialDelta).toFixed(2)} vs best` : '')); haptic(200); }
       else if (isT && state.follow === 'fixed') {
         const pick = draftOrder(race.order, state.rule).indexOf(i) + 1;
         showFinishCard(place, pick);
@@ -1056,7 +1191,7 @@ function showFinishCard(place, pick, timeText = null) {
   const lk = state.looks[state.target];
   card.style.setProperty('--me', lk.towel.bg);
   card.querySelector('.fc-place').textContent = place === 1 ? `${state.raceNames[state.target]} WON!` : `${state.raceNames[state.target]} · ${ordinal(place).toUpperCase()}`;
-  card.querySelector('.fc-pick').textContent = pick ? `→ DRAFT PICK #${pick}` : `TILT TRIAL · ${timeText || ''}`;
+  card.querySelector('.fc-pick').textContent = pick ? `→ DRAFT PICK #${pick}` : state.online ? timeText || '' : `TILT TRIAL · ${timeText || ''}`;
   card.hidden = false;
 }
 function haptic(pattern) {
@@ -1067,12 +1202,12 @@ function haptic(pattern) {
 function showResults() {
   const race = state.race;
   const order = race.order;
-  const trial = !!state.trial;
+  const trial = !!state.trial && !state.online;
   const picks = trial ? order.slice() : draftOrder(order, state.rule);
   const winner = state.raceNames[order[0]];
-  $('#res-title').textContent = trial ? 'Tilt Trial' : 'Draft order';
+  $('#res-title').textContent = trial ? 'Tilt Trial' : state.online ? 'Grand Prix — draft order' : 'Draft order';
   $('#res-rule').textContent = trial ? 'Skill mode · not a draft race' : state.rule === 'l' ? 'Last place picks first' : 'Winner picks first';
-  $('#res-seed').textContent = trial ? `course of the day · ${state.trialSeed.slice(6)}` : 'seed ' + seedToCode(state.seed);
+  $('#res-seed').textContent = trial ? `course of the day · ${state.trialSeed.slice(6)}` : state.online ? `room ${session ? session.code : ''} · race ${session ? session.raceNo : ''}` : 'seed ' + seedToCode(state.seed);
   const minePlace = state.follow === 'fixed' ? order.indexOf(state.target) + 1 : 0;
   const minePick = minePlace ? picks.indexOf(state.target) + 1 : 0;
   if (trial) {
@@ -1399,6 +1534,19 @@ function stepTrial(dt) {
   if (state.trial.done && state.lastFinishT > 1e8) state.lastFinishT = Math.max(...state.trial.race.finishTimes);
 }
 
+function stepOnline(dt) {
+  const steer = steerInput.update(dt);
+  const live = session.tick(dt, steer);
+  if (!live) return;
+  if (live !== state.trial) { state.trial = live; state.race = live.race; }
+  state.t = Math.max(0, session.raceTime());
+  for (const ev of live.drain()) {
+    if (ev.type === 'splashdown') { const src = live.ducks[ev.duck].state; src.splashT = ev.t; }
+    if (!session.isHost) handleEvent(ev); // the host already handled its events via onRaceEvent
+  }
+  updateNetPill();
+}
+
 function step(dt) {
   const race = state.race;
   // ---- phase logic
@@ -1455,6 +1603,13 @@ function step(dt) {
       break;
     }
     case 'race': {
+      if (state.online && session) {
+        stepOnline(dt);
+        const me = session.mySlot >= 0 && state.trial ? state.trial.ducks[session.mySlot] : null;
+        const myDone = me && state.race.finishTimes[session.mySlot] !== null && state.t > state.race.finishTimes[session.mySlot] + 2.5;
+        if (state.trial && (state.trial.done || myDone)) setPhase('finish');
+        break;
+      }
       if (state.trial) {
         // live: the player steers, the sim advances in real time, events are drained into the same handlers
         stepTrial(dt);
@@ -1490,6 +1645,11 @@ function step(dt) {
       break;
     }
     case 'finish': {
+      if (state.online && session) {
+        // keep the live view running (others are still racing); results arrive from the host (onOver)
+        stepOnline(dt);
+        break;
+      }
       if (state.trial) {
         // live mode has nothing to replay: a short orbit while stragglers finish, then the podium
         stepTrial(dt);
@@ -1536,6 +1696,7 @@ function step(dt) {
     default:
       break;
   }
+  if (state.online && session && (state.phase === 'grid' || state.phase === 'countdown')) stepOnline(dt);
   if (state.trial && trialProps.userData.pads) trialProps.userData.pads.material.opacity = 0.65 + Math.sin(state.realTime * 6) * 0.2;
   if (state.ghostDuck) {
     const g = state.trial && state.ghost && state.phase === 'race' ? ghostAt(state.ghost.path, state.trial.t) : null;
@@ -1982,6 +2143,7 @@ window.__duckWorld = {
   eventsOf: (type) => (state.race ? state.race.events.filter((e) => e.type === type) : []),
   resultCard: () => resultCard().toDataURL('image/png'),
   rig,
+  session: () => session,
   /** Deterministic stepping for capture tools: tick(dt) advances and renders one frame; tick(null) resumes real time. */
   tick: (dt) => { state.manual = dt !== null && dt !== undefined; if (state.manual) advance(dt); },
 };
