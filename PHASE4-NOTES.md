@@ -217,6 +217,13 @@ Meanwhile the seeded league flow was verified end-to-end live on prod by the lap
 results + podium + share). That flow is what the league is testing with today; it ships. The pick-your-duck
 screen is exactly the "select yourself on login" experience — no extra feature needed.
 
+## Small ask — port `look.chesty` to the 3D ducks
+
+`assignLooks()` now sets `chesty: true` for the league member named Connor (league easter egg, Evan's
+request) and the 2D renderer draws championship front plumage (`drawChest` in `draw-duck.js`) — two proud,
+comically ample breast lobes with a breathing swell. Please give the 3D duck builder (`ducks3d.js`) the same
+treatment when convenient: an exaggerated puffed-chest geometry keyed off `look.chesty`, cosmetic only.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this

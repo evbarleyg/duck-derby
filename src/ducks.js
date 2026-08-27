@@ -112,6 +112,8 @@ export function assignLooks(names, salt = 0) {
       flapRate: rng.range(0.9, 1.15),
       blinkOffset: rng.range(0, 5),
       cheeks: rng.chance(0.35),
+      // league easter egg: Connor's duck gets championship front plumage
+      chesty: normalizeName(names[entry.i]) === 'connor',
     };
   }
   return looks;

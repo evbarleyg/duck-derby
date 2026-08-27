@@ -105,6 +105,8 @@ export function drawDuck(ctx, look, o = {}) {
     ctx.restore();
   }
 
+  if (look.chesty) drawChest(ctx, pal, outline, t);
+
   // --- number roundel on the chest ---
   roundel(ctx, look, faceLeft);
 
@@ -219,6 +221,38 @@ function bodyPath(ctx) {
   ctx.bezierCurveTo(-34, -3, -35, -10, -37, -15);
   ctx.bezierCurveTo(-33, -12, -30, -9, -28, -6);
   ctx.closePath();
+}
+
+// Championship front plumage (look.chesty): two proud, comically ample breast
+// lobes on the duck's front, with a slow "deep breath" swell. Purely cosmetic.
+function drawChest(ctx, pal, outline, t) {
+  const puff = 1 + Math.sin(t * 2.6) * 0.03;
+  ctx.save();
+  ctx.translate(24, -2);
+  ctx.scale(puff, puff);
+  const grad = ctx.createLinearGradient(0, -16, 0, 13);
+  grad.addColorStop(0, pal.light || pal.body);
+  grad.addColorStop(0.5, pal.body);
+  grad.addColorStop(1, pal.shade);
+  for (const [ly, lr] of [[4.5, 9.5], [-7, 8.5]]) {
+    ctx.beginPath();
+    ctx.arc(3, ly, lr, 0, TAU);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = outline;
+    ctx.stroke();
+  }
+  // downy tufts on the leading edge
+  ctx.beginPath();
+  ctx.moveTo(11.5, -7);
+  ctx.quadraticCurveTo(15, -5.5, 12, -3);
+  ctx.moveTo(12.5, 3);
+  ctx.quadraticCurveTo(16, 4.5, 12.8, 7);
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = outline;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function sheen(ctx, t) {
