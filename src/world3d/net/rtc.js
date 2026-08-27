@@ -4,7 +4,8 @@
 // lobby, signalling and whatever peers could not connect (symmetric NAT without TURN) -- those stay on the
 // broadcast path automatically. Pure feature: if RTCPeerConnection is missing (Node bots, old browsers) the
 // session behaves exactly as before.
-const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+import { NET_CONFIG } from './net-config.js';
+const ICE = NET_CONFIG.iceServers || [{ urls: ['stun:stun.l.google.com:19302'] }];
 export const RTC_SUPPORTED = typeof RTCPeerConnection === 'function';
 
 /**

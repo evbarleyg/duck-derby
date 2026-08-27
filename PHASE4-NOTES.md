@@ -273,3 +273,42 @@ race with control, permalink + seeded fallback unchanged, no console errors. Nod
 What this needs from the live leg: nothing new — the existing phone checklist covers it (two phones on different
 networks joining the deployed site is the real STUN test). If a phone shows `via: relay` in
 `__duckWorld.session().rtcLinked === false`, it fell back; the game still works for it through Realtime.
+
+
+## Executor's recommendation on the quota decision (2026-08-27)
+
+**Take (b) — it is already built and on `main` (`9e8cfa0`, see "WebRTC star" above), so the decision costs
+nothing to try first; keep (a) Pro as the one-click safety net for draft night if the phone test shows more than
+one or two phones unable to link.**
+
+Why, with numbers against the hard 100 events/s cap (fan-out counted):
+
+| situation (12 racers + host) | Realtime events/s | fits 100/s? |
+|---|---|---|
+| everything on Realtime, original protocol | ~350 | no |
+| everything on Realtime, slimmed protocol (`8733ae3`) | ~170 | no |
+| WebRTC star, all phones linked | ~5 (roster heartbeat, 3 s pings, signalling) | yes, 20× headroom |
+| WebRTC star, 2 phones unlinked (symmetric NAT, no TURN) | ~5 + 8 Hz × 2 + their inputs ≈ 35 | yes |
+| WebRTC star, 5 phones unlinked | ~90 | marginal |
+| ≤ 5 racers all on Realtime (small league / all unlinked) | ~57–75 | yes |
+
+Lobby, countdown, results, rematch and the seeded fallback are all low-rate control traffic and were never the
+problem. Presence is capped at 20 events/s: joins/leaves only, fine.
+
+So the remaining risk in (b) is exactly "how many phones fail to open a data channel to the host laptop". STUN-only
+succeeds for typical home wifi and most carriers; symmetric NAT (some cellular, some corporate wifi) needs TURN.
+Mitigations, cheapest first:
+1. `NET_CONFIG.iceServers` now accepts a TURN entry (`net-config.js` has the template) — a free TURN tier
+   (Metered/OpenRelay, Cloudflare, ExpressTURN) covers a 12-phone night many times over. If Evan drops credentials
+   there, unlinked phones should go to ~0.
+2. Draft-night guidance already works without TURN: a phone that shows no `P2P` tag in the host's roster can switch
+   wifi ↔ cellular and re-join; and up to ~4 unlinked phones still fit the free quota anyway.
+3. If the two-phone test shows P2P failing broadly (e.g. the host laptop itself is behind a symmetric NAT), flip to
+   (a) for the night — no code change, the Realtime path is still there and the slimmed protocol needs ~170/s.
+
+(c) (Vercel WebSocket relay) buys nothing over (b)+(a): more moving parts, still a paid tier for sustained
+sockets, and worse latency than P2P.
+
+**What I need from the live leg now:** the two-phone test on the deployed site with one laptop hosting —
+confirm the roster shows `P2P` for both phones (or `__duckWorld.session().rtcLinked === true` on the phone), race,
+lock/unlock one phone mid-race. Then, optionally, TURN credentials into `net-config.js`.

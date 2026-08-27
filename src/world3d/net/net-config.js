@@ -15,4 +15,11 @@ export const NET_CONFIG = {
   supabaseUrl: 'https://aqguvjeqwjvuyfchldwq.supabase.co',
   supabaseKey: 'sb_publishable_z-kYVmA3tBjtcob-K1joig_zGl-dF6J',
   projectRef: 'aqguvjeqwjvuyfchldwq',
+  // WebRTC race path (host <-> phones data channels). STUN is enough for most home wifi / carriers; phones behind a
+  // symmetric NAT need TURN. To add one, append e.g.
+  //   { urls: ['turn:global.relay.metered.ca:80', 'turns:global.relay.metered.ca:443?transport=tcp'], username: '…', credential: '…' }
+  // (free tiers: Metered/OpenRelay, Cloudflare Calls TURN, or ExpressTURN). Credentials here are public-by-design
+  // like the Supabase key; use a provider's short-lived-credential API if that matters. Without TURN, an unlinked
+  // phone automatically stays on the Supabase broadcast path (counted against the 100 events/s quota).
+  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }],
 };
