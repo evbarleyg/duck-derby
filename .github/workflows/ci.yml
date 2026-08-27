@@ -23,3 +23,5 @@ jobs:
           node-version: 20
       - name: Test
         run: npm run ci
+      - name: Network layer (relay + bot clients through the real session code)
+        run: npm run ci:net

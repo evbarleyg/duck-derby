@@ -12,7 +12,11 @@
     "shots": "node tools/shots.mjs http://localhost:8080/ shots",
     "ci": "npm run check && npm test",
     "analyze3d": "node tools/analyze3d.mjs 12 300",
-    "shots3d": "node tools/shots3d.mjs http://localhost:8080/world.html shots/world"
+    "shots3d": "node tools/shots3d.mjs http://localhost:8080/world.html shots/world",
+    "ci:net": "node tools/ci-net.mjs 4 40",
+    "loadtest": "node tools/loadtest.mjs relay 12 150",
+    "relay": "node tools/relay.mjs 8787 --latency=35 --jitter=12",
+    "nettest": "node tools/nettest.mjs 2 && node tools/nettest2.mjs && node tools/rejoin-check.mjs"
   },
   "license": "MIT"
 }
