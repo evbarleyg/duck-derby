@@ -143,7 +143,7 @@ offset), airborne pose off the Drop, dizzy wobble, barrel roll.
 ## Tech constraints
 
 - Static files only (GitHub Pages). No bundler, no runtime npm deps.
-  **Vendor Three.js into the repo** rather than using a CDN: the Claude
+  **Vendor Three.js into the repo** rather than using a CDN: the build
   sandbox's egress proxy blocks `cdn.jsdelivr.net` (CONNECT 403) but
   `registry.npmjs.org` works, so run `npm pack three@0.160.0`, copy
   `build/three.module.js` (and any `examples/jsm/` addons you use) into
