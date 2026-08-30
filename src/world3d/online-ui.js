@@ -6,7 +6,7 @@ import { canStart, racers, connQuality, ROLES, MAX_PLAYERS, seriesStandings } fr
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function createLobbyUi({ session, shareUrl, onLeave }) {
+export function createLobbyUi({ session, shareUrl, onLeave, event = null, onClaim = () => {} }) {
   const el = {
     panel: $('#online'), code: $('#ol-code'), status: $('#ol-status'), qr: $('#ol-qr'), copy: $('#ol-copy'), leave: $('#ol-leave'),
     name: $('#ol-name'), ducks: $('#ol-ducks'), ready: $('#ol-ready'), spectate: $('#ol-spectate'), roster: $('#ol-roster'), count: $('#ol-count'),
@@ -26,7 +26,21 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
   el.name.onchange = () => session.setName(el.name.value.trim());
   el.ready.onclick = () => { const me = session.lobby.players[session.cid]; session.setReady(!(me && me.ready)); };
   el.spectate.onclick = () => session.spectate();
-  el.go.onclick = () => { if (!session.startRace()) setStatus('Cannot start yet — someone is not ready', 'error'); };
+  el.go.onclick = () => {
+    const force = !!(event && Date.now() >= Date.parse(event.startsAt)); // official start time reached: unready racers ride on autopilot
+    if (!session.startRace({ force })) setStatus('Cannot start yet — someone is not ready', 'error');
+  };
+  // official event strip in the lobby header
+  const evEl = { box: $('#ol-event'), title: $('#ol-event-title'), count: $('#ol-event-count'), when: $('#ol-event-when') };
+  if (event && evEl.box) {
+    evEl.box.hidden = false;
+    evEl.title.textContent = event.title;
+    const at = Date.parse(event.startsAt);
+    evEl.when.textContent = new Date(at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const tick = () => { const left = at - Date.now(); if (left <= 0) { evEl.count.textContent = 'now'; return; } let s = Math.floor(left / 1000); const d = Math.floor(s / 86400); s -= d * 86400; const h = Math.floor(s / 3600); s -= h * 3600; const mi = Math.floor(s / 60); s -= mi * 60; evEl.count.textContent = (d ? d + 'd ' : '') + String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0') + ':' + String(s).padStart(2, '0'); };
+    tick();
+    setInterval(tick, 1000);
+  } else if (evEl.box) evEl.box.hidden = true;
   el.fallback.onclick = () => { if (confirm('Let the ducks decide? Nobody drives: the seeded race plays identically on every phone.')) session.fallback(); };
   el.rule.onchange = () => session.setConfig({ rule: el.rule.value });
   el.items.onchange = () => session.setConfig({ items: el.items.checked });
@@ -41,7 +55,7 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
     b.style.color = tw.text;
     b.textContent = String(i + 1);
     b.title = `Duck ${i + 1} (${tw.name || ''})`;
-    b.onclick = () => { if (!b.classList.contains('taken')) session.claim(i); };
+    b.onclick = () => { if (!b.classList.contains('taken')) { session.claim(i); onClaim(i); } };
     el.ducks.appendChild(b);
   }
   let lastKey = '';
@@ -109,9 +123,14 @@ export function createLobbyUi({ session, shareUrl, onLeave }) {
       const raceLabel = lobby.config.bestOf > 1 ? ` · race ${Math.min(st.final ? 1 : st.done + 1, lobby.config.bestOf)} of ${lobby.config.bestOf}` : '';
       el.go.textContent = lobby.config.bestOf > 1 ? `Start race ${st.final ? 1 : st.done + 1} of ${lobby.config.bestOf}` : 'Start the Grand Prix';
       el.goSub.textContent = (ok ? `${rs.length} racer${rs.length === 1 ? '' : 's'} ready — go when you are` : rs.length === 0 ? 'Nobody has claimed a duck yet' : `Waiting for: ${notReady.join(', ')}`) + raceLabel;
+      if (event) {
+        const left = Date.parse(event.startsAt) - Date.now();
+        if (left > 15 * 60 * 1000) { el.go.disabled = true; el.go.textContent = 'Opens 15 min before the start'; el.goSub.textContent = `${rs.length} registered so far · people can claim their duck now and come back at race time`; }
+        else if (left <= 0 && !ok && rs.length >= 1) { el.go.disabled = false; el.go.textContent = `Start now (${notReady.length} not ready → autopilot)`; }
+      }
     } else {
       const host = lobby.players[lobby.hostCid];
-      el.guestbox.textContent = lobby.hostCid ? `${host ? host.name : 'The host'} starts the race when everyone is ready · ${lobby.config.rule === 'l' ? 'last place picks first' : 'winner picks first'}${lobby.config.bestOf > 1 ? ` · series of ${lobby.config.bestOf} (points)` : ''}` : 'Looking for the host…';
+      el.guestbox.textContent = lobby.hostCid ? `${host ? host.name : 'The host'} starts the race when everyone is ready · ${lobby.config.rule === 'l' ? 'last place picks first' : 'winner picks first'}${lobby.config.bestOf > 1 ? ` · series of ${lobby.config.bestOf} (points)` : ''}` : event ? 'You are registered on this phone: your name and duck are saved. Come back to this link at race time — the host opens the room shortly before the start.' : 'Looking for the host…';
     }
   }
 

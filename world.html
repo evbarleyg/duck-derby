@@ -39,6 +39,17 @@
 
 <section id="setup" class="panel" hidden>
   <div class="panel-inner">
+    <section id="event" hidden>
+      <div class="ev-photo"><img id="ev-img" alt="" decoding="async"></div>
+      <div class="ev-body">
+        <div class="ev-kicker" id="ev-kicker">Official race</div>
+        <div class="ev-title" id="ev-title">Official Draft Race</div>
+        <div class="ev-sub" id="ev-sub"></div>
+        <div class="ev-count" id="ev-count" aria-live="polite"><b id="ev-d">0</b><i>d</i> <b id="ev-h">00</b><i>h</i> <b id="ev-m">00</b><i>m</i> <b id="ev-s">00</b><i>s</i></div>
+        <div class="ev-when" id="ev-when"></div>
+        <div class="ev-actions"><button id="ev-join" class="primary big" type="button">Join &amp; claim your duck</button><button id="ev-host" type="button" class="ghost">I'm hosting</button></div>
+      </div>
+    </section>
     <header class="setup-head">
       <div class="logo"><span>Duck Derby</span><b>WORLD</b></div>
       <p class="tag">A Mario Kart-style 3D duck race — marina, canyon, lily pads, <em>The Drop</em>, the log flume, the rapids, the harbour — to settle your fantasy draft order. Fair, seeded, replayable.</p>
@@ -164,6 +175,7 @@
         <div class="ol-kicker">Grand Prix Online · room</div>
         <div class="ol-code" id="ol-code">····</div>
         <div class="ol-status" id="ol-status">Connecting…</div>
+        <div class="ol-event" id="ol-event" hidden><span id="ol-event-title"></span> · starts in <b id="ol-event-count">—</b> <small id="ol-event-when"></small></div>
       </div>
       <div class="ol-share">
         <div id="ol-qr"></div>

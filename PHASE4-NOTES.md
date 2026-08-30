@@ -462,3 +462,24 @@ results+11…16 s (the last fireworks booms before their 12 s cap; no music); ra
 2/3; back in the lobby after a second rematch — 0/0. So the online path stops too; with `2cff825` the `finish`
 phase and the menu are covered as well. Remaining explanation for Evan's report is the stale tab; a hard reload
 settles it.
+
+
+## Official race: Mon Aug 31 2026, 6:00 PM Pacific (room DRFT) — countdown + pre-registration
+
+- `OFFICIAL_EVENT` in `net-config.js` (code `DRFT`, `startsAt: 2026-09-01T01:00:00Z`, title, photo path). Set to
+  a new date/room for the next event; `null` hides all event UI.
+- Setup screen (`world.html`) shows an event header: photo (`share/event.jpg` — placeholder until Evan's photo is
+  dropped in), title, a live countdown to the same UTC instant on every device (shown in local time + Pacific),
+  **Join & claim your duck** and **I'm hosting**. The 2D landing page shows a compact countdown link. Shortcuts:
+  `world.html#official` / `?official=1` join the official room directly.
+- **Pre-registration**: joining the official room any time before the start lets people set their name and claim a
+  duck; the claim is remembered on the device (`ddw:claims`) and sent as a preference (`want`) on every join, so
+  when they return at race time they get the same duck (if it's only held by their own stale/offline entry, that
+  entry is dropped). Works even when no host is online yet ("You are registered on this phone…").
+- Host side for the official room: GO reads "Opens 15 min before the start" until T-15 min; from the start time
+  on, the host can start even if some present racers haven't tapped Ready ("Start now (N not ready → autopilot)").
+- Verified headlessly: early claim with no host → host later → phone returns on the same duck; rosters agree.
+
+**Evan:** send the header photo and I'll drop it in as `share/event.jpg` (it also becomes the link-preview image
+for the event if we point `og:image` at it). On the night: open `world.html`, click **I'm hosting** (room DRFT) on
+the laptop ~20 minutes before 6, keep the tab visible; everyone else uses **Join** (or the QR/link `…/world#official`).

@@ -9,6 +9,7 @@ import { getCourse } from './course.js';
 import { createTrial, ghostAt, dailyTrialSeed } from './trial.js';
 import { SteerInput } from './input.js';
 import { createSession } from './net/session.js';
+import { OFFICIAL_EVENT } from './net/net-config.js';
 import { createLobbyUi } from './online-ui.js';
 import { createRace, positionAt, lateralAt, speedAt, standingsAt, heldAt, activeWindows, timeAt, ENGINE_VERSION } from './race.js';
 import { parseParams, buildQuery, resolveCam, draftOrder } from './params.js';
@@ -198,9 +199,11 @@ async function boot() {
   $('#boot').classList.add('out');
   setTimeout(() => $('#boot').remove(), 700);
   initSetupUi();
+  initEventUi();
   if (urlFlags.get('gp') && showPermalinkResult()) { /* league record view */ }
   else if (urlFlags.get('room')) goOnline(urlFlags.get('as') === 'tv' ? 'spectator' : 'guest', urlFlags.get('room'));
-  else if (urlFlags.get('host') === '1') goOnline('host');
+  else if (urlFlags.get('host') === '1') goOnline('host', urlFlags.get('code') || null);
+  else if ((urlFlags.get('official') === '1' || location.hash === '#official') && EVENT) goOnline('guest', EVENT.code);
   else if (params.names && (params.autostart || urlFlags.get('autostart') === '1')) startRace({ fromUrl: true });
   else setPhase('menu');
   requestAnimationFrame(loop);
@@ -399,6 +402,50 @@ const onlineUrl = (code) => `${location.origin}${location.pathname}?room=${code}
 async function requestWakeLock() { try { if (!wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { /* not available */ } }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && session) requestWakeLock(); });
 
+// --------------------------------------------------------------------------- official event (countdown + pre-registration)
+const EVENT = OFFICIAL_EVENT && OFFICIAL_EVENT.startsAt ? { ...OFFICIAL_EVENT, at: Date.parse(OFFICIAL_EVENT.startsAt) } : null;
+function fmtCountdown(ms) {
+  const sgn = ms < 0 ? -1 : 1;
+  let s = Math.floor(Math.abs(ms) / 1000);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const mi = Math.floor(s / 60); s -= mi * 60;
+  return { d, h, m: mi, s, sgn, text: (d ? `${d}d ` : '') + `${String(h).padStart(2, '0')}h ${String(mi).padStart(2, '0')}m ${String(s).padStart(2, '0')}s` };
+}
+function eventWhenText() {
+  if (!EVENT) return '';
+  const dt = new Date(EVENT.at);
+  const local = dt.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const pt = dt.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  return `${local} your time · ${pt} Pacific · room ${EVENT.code}`;
+}
+function initEventUi() {
+  const box = $('#event');
+  if (!EVENT || !box) return;
+  if (Date.now() > EVENT.at + 6 * 3600 * 1000) return; // long over: hide the banner
+  box.hidden = false;
+  $('#ev-title').textContent = EVENT.title;
+  $('#ev-sub').textContent = EVENT.subtitle || '';
+  $('#ev-when').textContent = eventWhenText() + (EVENT.hostHint ? ' — ' + EVENT.hostHint : '');
+  const img = $('#ev-img');
+  img.onerror = () => { img.onerror = null; img.src = 'share/og.jpg'; };
+  img.src = EVENT.photo || 'share/og.jpg';
+  $('#ev-join').addEventListener('click', () => { if (Q.mobile) steerInput.enableTilt(); goOnline('guest', EVENT.code); });
+  $('#ev-host').addEventListener('click', () => { if (!confirm(`Host the official race (room ${EVENT.code}) from this device? Only one device should host.`)) return; goOnline('host', EVENT.code); });
+  const tick = () => {
+    const left = EVENT.at - Date.now();
+    const c = fmtCountdown(left);
+    const el = $('#ev-count');
+    if (left > 0) { $('#ev-d').textContent = c.d; $('#ev-h').textContent = String(c.h).padStart(2, '0'); $('#ev-m').textContent = String(c.m).padStart(2, '0'); $('#ev-s').textContent = String(c.s).padStart(2, '0'); $('#ev-kicker').textContent = 'Official race · starts in'; el.classList.remove('live'); }
+    else { $('#ev-kicker').textContent = 'Official race'; el.classList.add('live'); el.innerHTML = left > -3 * 3600 * 1000 ? '<b>LIVE NOW</b>' : '<b>FINISHED</b>'; }
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+/** Remembered duck for a room on this device (pre-registration). */
+function rememberedDuck(code) { try { const m = JSON.parse(localStorage.getItem('ddw:claims') || '{}'); return Number.isInteger(m[code]) ? m[code] : null; } catch { return null; } }
+function rememberDuck(code, duck) { try { const m = JSON.parse(localStorage.getItem('ddw:claims') || '{}'); m[code] = duck; localStorage.setItem('ddw:claims', JSON.stringify(m)); } catch { /* ignore */ } }
+
 async function goOnline(role, code = null) {
   if (session) await leaveOnline(false);
   console.info('[net] online mode:', role, code || '(new room)');
@@ -407,8 +454,11 @@ async function goOnline(role, code = null) {
   state.shared = false;
   if (state.sound) audio.unlock();
   const name = (stored.myName || '').trim() || 'Duck fan';
+  const normCode = code ? String(code).toUpperCase() : null;
+  const isOfficial = !!(EVENT && normCode === EVENT.code);
   session = createSession({
     role, code, name,
+    want: normCode ? rememberedDuck(normCode) : null,
     kind: urlFlags.get('relay') ? 'relay' : 'supabase',
     relayUrl: urlFlags.get('relay') || undefined,
     hooks: {
@@ -422,7 +472,7 @@ async function goOnline(role, code = null) {
       onFallback: onOnlineFallback,
     },
   });
-  lobbyUi = createLobbyUi({ session, shareUrl: onlineUrl, onLeave: () => leaveOnline(true) });
+  lobbyUi = createLobbyUi({ session, shareUrl: onlineUrl, onLeave: () => leaveOnline(true), event: isOfficial ? EVENT : null, onClaim: (duck) => rememberDuck(session.code, duck) });
   $('#ol-name').addEventListener('change', () => { stored.myName = $('#ol-name').value.trim().slice(0, 22); saveStore(); });
   state.online = true;
   document.body.classList.add('online');

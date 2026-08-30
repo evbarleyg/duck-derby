@@ -41,7 +41,7 @@ export function clientId() {
  * }
  */
 export function createSession(opts) {
-  let { role, code, name, kind, relayUrl, hooks = {} } = opts;
+  let { role, code, name, kind, relayUrl, hooks = {}, want = null } = opts; // want: preferred duck slot remembered on this device
   const cid = clientId();
   const isHostInit = role === 'host';
   code = isHostInit ? (code || makeRoomCode()) : normalizeRoomCode(code || '') || code;
@@ -96,10 +96,10 @@ export function createSession(opts) {
     say(s.isHost ? 'Hosting' : 'Connected', 'ok');
     wire();
     // announce ourselves; guests wait for the host's roster to learn who the host is
-    dispatch({ type: 'hello', cid, name, role: role === 'spectator' ? ROLES.spectator : undefined });
-    room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported });
+    dispatch({ type: 'hello', cid, name, want, role: role === 'spectator' ? ROLES.spectator : undefined });
+    room.send('control', MSG.hello, helloMsg());
     if (s.isHost) broadcastRoster();
-    else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported }); }, 1500); }
+    else { helloTimer = setInterval(() => { if (!lobby.hostCid) room.send('control', MSG.hello, helloMsg()); }, 1500); }
     pingTimer = setInterval(sendPing, 3000);
     for (let k = 1; k <= 6; k++) setTimeout(sendPing, k * 180); // quick burst to lock the clock
     return s;
@@ -108,6 +108,7 @@ export function createSession(opts) {
   let pingTimer = null;
   let rosterTimer = null;
 
+  const helloMsg = () => ({ cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported, want: Number.isInteger(want) ? want : undefined });
   /** Host-authored control message (carries `from` so guests can ignore anyone who is not their host). */
   function hostSend(type, payload) { if (room) room.send('control', type, { ...payload, from: cid }); }
   /** Guests: is this control message from the host we know (or do we not know a host yet)? */
@@ -130,7 +131,7 @@ export function createSession(opts) {
     });
     // ---- control channel
     room.on('control', MSG.hello, (p) => {
-      dispatch({ type: 'hello', cid: p.cid, name: p.name, role: p.role === 'spectator' ? ROLES.spectator : undefined });
+      dispatch({ type: 'hello', cid: p.cid, name: p.name, want: p.want, role: p.role === 'spectator' ? ROLES.spectator : undefined });
       if (s.isHost) {
         broadcastRoster();
         if (rtcWanted && rtc.supported && p.rtc !== false) rtc.connectTo(p.cid); // open a data-channel link to this participant
@@ -243,8 +244,8 @@ export function createSession(opts) {
   }
 
   // ------------------------------------------------------------------ lobby actions (local user)
-  function setName(n) { name = String(n || '').slice(0, 22) || 'Duck'; dispatch({ type: 'hello', cid, name }); room && room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION }); if (s.isHost) broadcastRoster(); }
-  function claim(duck) { dispatch({ type: 'claim', cid, duck }); room && room.send('control', MSG.claim, { cid, duck }); if (s.isHost) broadcastRoster(); }
+  function setName(n) { name = String(n || '').slice(0, 22) || 'Duck'; dispatch({ type: 'hello', cid, name }); room && room.send('control', MSG.hello, helloMsg()); if (s.isHost) broadcastRoster(); }
+  function claim(duck) { want = duck; dispatch({ type: 'claim', cid, duck }); room && room.send('control', MSG.claim, { cid, duck }); if (s.isHost) broadcastRoster(); }
   function spectate() { dispatch({ type: 'spectate', cid }); room && room.send('control', 'spectate', { cid }); if (s.isHost) broadcastRoster(); }
   function setReady(ready) { dispatch({ type: 'ready', cid, ready }); room && room.send('control', MSG.ready, { cid, ready }); if (s.isHost) broadcastRoster(); }
   function setConfig(cfg) { if (!s.isHost) return; dispatch({ type: 'config', config: cfg }); hostSend(MSG.config, lobby.config); broadcastRoster(); }
@@ -261,8 +262,9 @@ export function createSession(opts) {
   let snapTick = 0;
   let evOut = [];
   let slotToCid = [];
-  function startRace({ seed } = {}) {
-    if (!s.isHost || !canStart(lobby)) return false;
+  function startRace({ seed, force = false } = {}) {
+    if (!s.isHost) return false;
+    if (!canStart(lobby) && !(force && racers(lobby).length >= 1 && lobby.phase === 'lobby')) return false;
     const rs = racers(lobby);
     // slots may be sparse (someone left): compact to 0..n-1 in slot order
     slotToCid = rs.map((p) => p.cid);
@@ -377,7 +379,7 @@ export function createSession(opts) {
       }
       s.live.step(dt, rt, mySteer);
       // results overdue (the `over` broadcast may have been dropped): re-announce ourselves so the host re-sends it
-      if (s.live.done && lobby.phase !== 'results' && now - (lastNudge || 0) > 3000) { lastNudge = now; room.send('control', MSG.hello, { cid, name, role, v: PROTOCOL_VERSION, rtc: rtcWanted && rtc.supported }); }
+      if (s.live.done && lobby.phase !== 'results' && now - (lastNudge || 0) > 3000) { lastNudge = now; room.send('control', MSG.hello, helloMsg()); }
       // host silent for 4 s mid-race -> void
       if (rt > 2 && Date.now() - s.lastHostSeen > 4000) hostLost('Lost the host — no data for 4 s');
     }

@@ -46,6 +46,7 @@
         <h1 id="setup-title">Race for your <span>draft order</span></h1>
         <p class="lede">Name your ducks. We'll race them down the pond — fair, seeded and replayable — and hand you a draft board.</p>
         <a id="link-world" class="world-link" href="world.html">New: <b>Duck Derby World</b> — the 3D Mario Kart-style race (items, TV cameras, join-by-QR) →</a>
+        <a id="link-official" class="world-link official" href="world.html#official" hidden><b>Official Draft Race</b> · <span id="official-count">soon</span> · join now &amp; claim your duck →</a>
 
         <div id="share-banner" class="share-banner" hidden>
           <strong>Shared race loaded.</strong> Same ducks + same seed = the exact same race. Hit <em>Replay</em> to watch it.
@@ -165,6 +166,18 @@
   <script>
   // carry a shared roster/seed over to the 3D game
   (function () { var a = document.getElementById('link-world'); if (a && location.search) a.href = 'world.html' + location.search; })();
+</script>
+<script type="module">
+  // official race countdown (same config as the 3D game)
+  import { OFFICIAL_EVENT } from './src/world3d/net/net-config.js';
+  const el = document.getElementById('link-official');
+  const at = OFFICIAL_EVENT && OFFICIAL_EVENT.startsAt ? Date.parse(OFFICIAL_EVENT.startsAt) : NaN;
+  if (el && Number.isFinite(at) && Date.now() < at + 6 * 3600e3) {
+    el.hidden = false;
+    const out = document.getElementById('official-count');
+    const tick = () => { const left = at - Date.now(); if (left <= 0) { out.textContent = 'LIVE NOW'; return; } let s = Math.floor(left / 1000); const d = Math.floor(s / 86400); s -= d * 86400; const h = Math.floor(s / 3600); s -= h * 3600; const m = Math.floor(s / 60); s -= m * 60; out.textContent = 'starts in ' + (d ? d + 'd ' : '') + String(h).padStart(2, '0') + 'h ' + String(m).padStart(2, '0') + 'm ' + String(s).padStart(2, '0') + 's'; };
+    tick(); setInterval(tick, 1000);
+  }
 </script>
 </body>
 </html>

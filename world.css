@@ -505,3 +505,32 @@ body.online #hud-item, body.online #hud-leader { display: none; }
 #ol-series-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 #ol-series-list li { display: grid; grid-template-columns: 1.4rem minmax(0,1fr) auto; gap: 8px; font-size: 0.85rem; padding: 3px 8px; border-radius: 8px; background: rgba(255,255,255,0.05); }
 #ol-series-list li b { color: var(--gold); font-family: var(--num); }
+
+/* ---------------------------------------------------------------- official event header */
+#event { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr); gap: 16px; align-items: stretch; margin: 0 0 16px; padding: 0; border-radius: 18px; overflow: hidden; background: linear-gradient(135deg, rgba(255,210,63,0.18), rgba(255,255,255,0.04)); border: 1px solid rgba(255,210,63,0.45); }
+#event[hidden] { display: none; }
+.ev-photo { position: relative; min-height: 180px; background: #0b1626 center / cover no-repeat; }
+.ev-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ev-body { padding: 14px 16px 16px 0; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.ev-kicker { font: 900 0.68rem var(--num); letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); }
+.ev-title { font: 900 1.7rem var(--num); font-style: italic; letter-spacing: 0.01em; line-height: 1.05; text-transform: uppercase; }
+.ev-sub { color: var(--muted); font-size: 0.88rem; }
+.ev-count { font: 900 2.1rem var(--num); letter-spacing: 0.02em; line-height: 1; margin-top: 4px; white-space: nowrap; }
+.ev-count b { display: inline-block; min-width: 2ch; text-align: right; color: #fff; }
+.ev-count i { font-style: normal; font-size: 0.9rem; color: var(--gold); margin-right: 6px; }
+.ev-count.live { color: #8be28b; }
+.ev-when { font-size: 0.8rem; color: var(--muted); }
+.ev-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+#event button { font: 800 0.9rem var(--font); border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.1); color: #fff; padding: 0.45rem 0.8rem; cursor: pointer; }
+#event button.primary.big { background: var(--gold); color: var(--ink); border-color: transparent; font: 900 1.05rem var(--num); letter-spacing: 0.04em; padding: 0.7rem 1rem; box-shadow: 0 5px 0 #b37d00; text-transform: uppercase; font-style: italic; }
+#event button.ghost { background: rgba(255,255,255,0.06); color: #dfe9f5; font-weight: 700; font-size: 0.82rem; }
+.ol-event { margin-top: 6px; font-size: 0.86rem; color: #dfe9f5; background: rgba(255,210,63,0.14); border: 1px solid rgba(255,210,63,0.4); border-radius: 10px; padding: 5px 10px; display: inline-block; }
+.ol-event b { font-family: var(--num); color: var(--gold); }
+.ol-event small { color: var(--muted); margin-left: 4px; }
+@media (max-width: 760px) {
+  #event { grid-template-columns: 1fr; }
+  .ev-photo { min-height: 150px; }
+  .ev-body { padding: 0 14px 14px; }
+  .ev-title { font-size: 1.35rem; }
+  .ev-count { font-size: 1.7rem; }
+}

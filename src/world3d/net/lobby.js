@@ -76,10 +76,26 @@ export function reduce(state, a) {
     case 'hello': {
       const existing = state.players[a.cid];
       const role = a.cid === state.hostCid ? ROLES.host : a.role || (existing ? existing.role : ROLES.player);
-      let next = withPlayer(state, a.cid, { name: String(a.name || '').slice(0, 22) || (existing && existing.name) || 'Duck', role, online: true, lastSeen: now }, now);
-      // auto-claim the lowest free slot for new non-spectators
+      const name = String(a.name || '').slice(0, 22) || (existing && existing.name) || 'Duck';
+      let next = withPlayer(state, a.cid, { name, role, online: true, lastSeen: now }, now);
       const p = next.players[a.cid];
-      if (p.duck < 0 && role !== ROLES.spectator) {
+      // pre-registered preference ("I claimed duck 7 on this phone yesterday"): honour it if the slot is free or only
+      // held by someone offline -- and if that offline holder has the same name it is this person's old session: drop it
+      if (p.duck < 0 && role !== ROLES.spectator && Number.isInteger(a.want) && a.want >= 0 && a.want < MAX_PLAYERS) {
+        const holder = claimedSlots(next).get(a.want);
+        const h = holder ? next.players[holder] : null;
+        if (!h || (!h.online && holder !== a.cid)) {
+          if (h) {
+            const players = { ...next.players };
+            if (h.name === name) delete players[holder];
+            else players[holder] = { ...h, duck: -1 };
+            next = { ...next, players };
+          }
+          next = withPlayer(next, a.cid, { duck: a.want }, now);
+        }
+      }
+      // otherwise auto-claim the lowest free slot for new non-spectators
+      if (next.players[a.cid].duck < 0 && role !== ROLES.spectator) {
         const slot = freeSlot(next);
         if (slot >= 0) next = withPlayer(next, a.cid, { duck: slot }, now);
       }

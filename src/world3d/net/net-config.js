@@ -11,6 +11,19 @@
 // handshake -> 101 with this key. Note: GET /rest/v1/ (the OpenAPI root)
 // returns 401 "only service_role" on this project — that endpoint is
 // restricted on new Supabase projects and is NOT a sign the key is bad.
+/**
+ * The official league race: a fixed room that opens for pre-registration right away (name + duck claim are
+ * remembered per device) and races at `startsAt`. Change the time/room here; set to null to hide the event UI.
+ */
+export const OFFICIAL_EVENT = {
+  code: 'DRFT',
+  title: 'Official Draft Race',
+  subtitle: 'League draft order · everyone drives their own duck',
+  startsAt: '2026-09-01T01:00:00Z', // Mon Aug 31 2026, 6:00 PM Pacific
+  photo: 'share/event.jpg', // header photo (falls back to the OG image if missing)
+  hostHint: 'Evan hosts from the laptop; join from your phone any time before the start to claim your duck.',
+};
+
 export const NET_CONFIG = {
   supabaseUrl: 'https://aqguvjeqwjvuyfchldwq.supabase.co',
   supabaseKey: 'sb_publishable_z-kYVmA3tBjtcob-K1joig_zGl-dF6J',

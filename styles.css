@@ -333,3 +333,6 @@ body.phase-race .topbar .brand-tag, body.phase-finish .topbar .brand-tag { displ
 .world-link { display: inline-block; margin: 2px 0 14px; padding: 8px 12px; border-radius: 10px; background: #13233a; border: 1px solid #0b1626; color: #eaf2ff; text-decoration: none; font-size: 0.92rem; font-weight: 700; line-height: 1.3; box-shadow: 0 3px 0 #0b1626; }
 .world-link b { color: #ffd23f; }
 .world-link:hover { background: #1b3050; }
+.world-link.official { background: #3a2a06; border-color: #b37d00; box-shadow: 0 3px 0 #5a4100; margin-left: 6px; }
+.world-link.official b { color: #ffd23f; }
+#official-count { font-variant-numeric: tabular-nums; }
