@@ -500,3 +500,16 @@ claimed; names already present are struck through (duplicate-proof); free duck s
 unclaimed league names. Freehand typing still works. Verified with host + phone through the relay; no changes to
 the race path. So: before opening the official room tonight, make sure the laptop's setup screen lists the league
 (it already does if the names are still there from earlier).
+
+
+**Done (T-20 min): unclaimed league names race too.** The start line-up is now every league seat in roster order —
+name #i is duck i, steered by whoever claimed it (tap the chip, or just join with that saved name: you land on your
+own seat automatically), and on autopilot under the league name when nobody did (identical duck stats; exactly what
+happens to a racer who never touches the controls) — followed by any walk-ins. So the draft order always covers the
+whole league; people who show up steer and watch their own duck, people who don't are still in it. Also fixed: phone
+inputs and "my duck" were indexed by lobby duck number while the race compacts slots, which went wrong as soon as
+claims were sparse (ducks 1, 6, 9…) — inputs now map by race slot. Host status line shows "· N unclaimed league
+ducks on autopilot". Verified: unit tests (line-up, seating, series names), relay end-to-end (host + 2 phones + late
+joiner: field = all names, human ducks human-steered, seats on autopilot, identical canonical order everywhere,
+late joiner sees real names), networked CI, headless browser boot (host publishes roster, guest sees chips).
+Wire format unchanged: phones that already loaded the page keep working; only the host laptop needs the new build.

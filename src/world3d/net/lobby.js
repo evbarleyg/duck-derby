@@ -34,10 +34,10 @@ export function claimedSlots(state) {
   return m;
 }
 
-/** Lowest free duck slot, or -1. */
-export function freeSlot(state, max = MAX_PLAYERS) {
+/** Lowest free duck slot at or after `from` (wrapping round to the ones before it), or -1. */
+export function freeSlot(state, max = MAX_PLAYERS, from = 0) {
   const used = claimedSlots(state);
-  for (let i = 0; i < max; i++) if (!used.has(i)) return i;
+  for (let k = 0; k < max; k++) { const i = (from + k) % max; if (!used.has(i)) return i; }
   return -1;
 }
 
@@ -46,12 +46,48 @@ export function racers(state) {
   return Object.values(state.players).filter((p) => p.duck >= 0 && p.role !== ROLES.spectator).sort((a, b) => a.duck - b.duck);
 }
 
-/** GO is allowed when ≥ 1 racer (2 for a real race, but solo is useful for testing), everyone online is ready, and we're in the lobby. */
+/** GO is allowed when the line-up has ≥ 1 duck (2 for a real race, but solo is useful for testing), everyone online is ready, and we're in the lobby. */
 export function canStart(state) {
   if (state.phase !== 'lobby') return false;
+  if (lineup(state).length < 1) return false;
+  return racers(state).every((p) => p.ready || !p.online);
+}
+
+const SEAT_RE = /^seat:(\d+)$/;
+/** cid used in start/over messages for a league seat nobody claimed (raced on autopilot under the league name). */
+export const seatCid = (i) => `seat:${i}`;
+export const isSeatCid = (cid) => SEAT_RE.test(String(cid));
+
+/**
+ * The starting line-up, in slot order: every league seat (config.roster[i] = duck i) -- driven by whoever claimed
+ * that duck, or on autopilot under the league name when nobody did -- then anyone else who claimed a duck. A league
+ * name that is already somebody's player name gets no autopilot double. Entries are {cid, name}; unclaimed seats
+ * carry seatCid(i), which is not a key of state.players (see nameOf).
+ */
+export function lineup(state) {
   const rs = racers(state);
-  if (rs.length < 1) return false;
-  return rs.every((p) => p.ready || !p.online);
+  const roster = (state.config && state.config.roster) || [];
+  const byDuck = new Map(rs.map((p) => [p.duck, p]));
+  const present = new Set(rs.map((p) => String(p.name).trim().toLowerCase()));
+  const out = [];
+  const displaced = []; // league names whose seat is held by someone with another name: they still race, after the seats
+  roster.forEach((nm, i) => {
+    const p = byDuck.get(i);
+    if (p) { out.push({ cid: p.cid, name: p.name }); byDuck.delete(i); }
+    if (!nm || present.has(nm.toLowerCase())) return;
+    (p ? displaced : out).push({ cid: seatCid(i), name: nm });
+  });
+  for (const p of byDuck.values()) out.push({ cid: p.cid, name: p.name }); // racers() is already in duck order
+  return out.concat(displaced);
+}
+
+/** Display name for a cid seen in a start/over message: a player, or the league name of an unclaimed seat. */
+export function nameOf(state, cid) {
+  const p = state.players[cid];
+  if (p) return p.name;
+  const m = SEAT_RE.exec(String(cid));
+  const roster = (state.config && state.config.roster) || [];
+  return (m && roster[+m[1]]) || '—';
 }
 
 /**
@@ -94,9 +130,18 @@ export function reduce(state, a) {
           next = withPlayer(next, a.cid, { duck: a.want }, now);
         }
       }
-      // otherwise auto-claim the lowest free slot for new non-spectators
+      // otherwise seat new non-spectators: on their own league seat when the name is on the roster (free or only
+      // held by someone offline), else on the lowest free duck outside the league seats (walk-ins don't squat on them)
       if (next.players[a.cid].duck < 0 && role !== ROLES.spectator) {
-        const slot = freeSlot(next);
+        const roster = next.config.roster || [];
+        const seat = roster.findIndex((n) => n && n.toLowerCase() === name.trim().toLowerCase());
+        let slot = -1;
+        if (seat >= 0) {
+          const holder = claimedSlots(next).get(seat);
+          const h = holder ? next.players[holder] : null;
+          if (!h || !h.online) { if (h) next = withPlayer(next, holder, { duck: -1 }, now); slot = seat; }
+        }
+        if (slot < 0) slot = freeSlot(next, MAX_PLAYERS, Math.min(roster.length, MAX_PLAYERS - 1));
         if (slot >= 0) next = withPlayer(next, a.cid, { duck: slot }, now);
       }
       return next;

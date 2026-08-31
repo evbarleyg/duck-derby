@@ -2,7 +2,7 @@
 // authoritative live race. main.js drives it once per frame and renders whatever `session.live` exposes
 // (a trial-shaped object: the host's sim or the client's RemoteRace).
 import { openRoom } from './transport.js';
-import { initialLobby, reduce, rosterMessage, canStart, racers, ROLES, pickOrder, seriesStandings } from './lobby.js';
+import { initialLobby, reduce, rosterMessage, canStart, racers, lineup, nameOf, ROLES, pickOrder, seriesStandings } from './lobby.js';
 import { MSG, FLAG, packSnapshot, unpackSnapshot, InputCoalescer, PROTOCOL_VERSION, ratePolicy } from './protocol.js';
 import { ClockSync } from './clock.js';
 import { makeRoomCode, makeClientId, normalizeRoomCode } from './codes.js';
@@ -148,7 +148,7 @@ export function createSession(opts) {
       if (lobby.hostCid && p.hostCid !== lobby.hostCid && p.from !== lobby.hostCid) { netlog('ignored roster from non-host', p.from); return; }
       s.lastHostSeen = Date.now();
       lobby = reduce(lobby, { type: 'roster', ...p, now: Date.now() });
-      if (lobby.players[cid]) s.mySlot = lobby.players[cid].duck;
+      if (lobby.players[cid] && lobby.phase === 'lobby') s.mySlot = lobby.players[cid].duck; // mid-race, mySlot is my index in the start message
       emitLobby();
     });
     room.on('control', MSG.config, (p) => { if (!s.isHost && fromHost(p)) { const { from, ...cfg } = p; dispatch({ type: 'config', config: cfg }); } });
@@ -205,7 +205,7 @@ export function createSession(opts) {
   function onInputIn(p) {
     if (!s.isHost) return;
     s.stats.inputsIn++;
-    const slot = slotOf(p.c);
+    const slot = slotToCid.indexOf(p.c); // race slot (start message order), which is not the lobby duck number when claims are sparse
     if (slot >= 0) { inputs[slot] = p.s; inputAt[slot] = Date.now(); }
     seen(p.c);
   }
@@ -237,7 +237,6 @@ export function createSession(opts) {
     }, 600);
   }
   function seen(c) { const p = lobby.players[c]; if (p && (!p.online || Date.now() - p.lastSeen > 500)) { lobby = reduce(lobby, { type: 'seen', cid: c, now: Date.now() }); } }
-  function slotOf(c) { const p = lobby.players[c]; return p ? p.duck : -1; }
   function sendPing() {
     if (!room || s.isHost) return;
     room.send('input', MSG.ping, { c: cid, t0: performance.now() });
@@ -264,11 +263,10 @@ export function createSession(opts) {
   let slotToCid = [];
   function startRace({ seed, force = false } = {}) {
     if (!s.isHost) return false;
-    if (!canStart(lobby) && !(force && racers(lobby).length >= 1 && lobby.phase === 'lobby')) return false;
-    const rs = racers(lobby);
-    // slots may be sparse (someone left): compact to 0..n-1 in slot order
-    slotToCid = rs.map((p) => p.cid);
-    const names = rs.map((p) => p.name);
+    const grid = lineup(lobby); // league seats in order (claimed -> that player steers; unclaimed -> autopilot under the league name), then other claimers
+    if (!canStart(lobby) && !(force && grid.length >= 1 && lobby.phase === 'lobby')) return false;
+    slotToCid = grid.map((e) => e.cid);
+    const names = grid.map((e) => e.name);
     const raceSeed = seed ?? (Math.floor(Math.random() * 2 ** 31) >>> 0);
     const startAt = performance.now() + COUNTDOWN_MS; // host clock
     const raceNo = lobby.raceNo + 1;
@@ -408,9 +406,9 @@ export function createSession(opts) {
     const orderCids = msg.order.map((i) => msg.cids[i]);
     dispatch({ type: 'over', order: orderCids, times: msg.times, raceNo: msg.raceNo });
     if (s.live && s.live.applyResult) s.live.applyResult(msg.order, msg.times);
-    const names = msg.cids.map((c) => (lobby.players[c] ? lobby.players[c].name : '—'));
+    const names = msg.cids.map((c) => nameOf(lobby, c));
     const st = seriesStandings(lobby);
-    const series = lobby.config.bestOf > 1 ? { of: st.of, done: st.done, final: st.final, rows: st.rows.map((r) => ({ slot: msg.cids.indexOf(r.cid), name: lobby.players[r.cid] ? lobby.players[r.cid].name : '—', points: r.points })).filter((r) => r.slot >= 0) } : null;
+    const series = lobby.config.bestOf > 1 ? { of: st.of, done: st.done, final: st.final, rows: st.rows.map((r) => ({ slot: msg.cids.indexOf(r.cid), name: nameOf(lobby, r.cid), points: r.points })).filter((r) => r.slot >= 0) } : null;
     hooks.onOver && hooks.onOver({ order: msg.order, times: msg.times, cids: msg.cids, names, rule: msg.rule || lobby.config.rule, picks: pickOrder(msg.order, msg.rule || lobby.config.rule), raceNo: msg.raceNo, series });
   }
   function hostLost(reason) {
@@ -443,8 +441,8 @@ export function createSession(opts) {
   /** "Let the ducks decide": everyone plays the deterministic seeded race locally with a synced start. */
   function fallback() {
     if (!s.isHost) return;
-    const rs = racers(lobby);
-    const msg = { names: rs.map((p) => p.name), cids: rs.map((p) => p.cid), seed: (Math.floor(Math.random() * 2 ** 31) >>> 0), startAt: performance.now() + 6000, rule: lobby.config.rule, items: lobby.config.items };
+    const grid = lineup(lobby);
+    const msg = { names: grid.map((e) => e.name), cids: grid.map((e) => e.cid), seed: (Math.floor(Math.random() * 2 ** 31) >>> 0), startAt: performance.now() + 6000, rule: lobby.config.rule, items: lobby.config.items };
     netlog('host: let the ducks decide (seeded fallback)');
     hostSend(MSG.fallback, msg);
     setTimeout(() => room && hostSend(MSG.fallback, msg), 400);
@@ -453,14 +451,14 @@ export function createSession(opts) {
   function runFallback(msg, asHost = false) {
     const startAtLocal = asHost || !clock.ready ? msg.startAt : clock.toLocal(msg.startAt);
     s.mySlot = msg.cids.indexOf(cid);
+    slotToCid = msg.cids;
     dispatch({ type: 'start', startAt: msg.startAt, raceNo: lobby.raceNo + 1 });
     hooks.onFallback && hooks.onFallback({ names: msg.names, seed: msg.seed, startAtLocal, rule: msg.rule, items: msg.items, mySlot: s.mySlot });
   }
   /** Host tells everyone the seeded fallback race is over (so lobbies converge on results/rematch). */
   function fallbackOver(order, times) {
     if (!s.isHost) return;
-    const rs = racers(lobby);
-    const msg = { order, times, raceNo: lobby.raceNo, cids: rs.map((p) => p.cid), rule: lobby.config.rule };
+    const msg = { order, times, raceNo: lobby.raceNo, cids: slotToCid, rule: lobby.config.rule };
     hostSend(MSG.over, msg);
     finishRace(msg);
   }

@@ -456,9 +456,13 @@ async function goOnline(role, code = null) {
   const name = (stored.myName || '').trim() || 'Duck fan';
   const normCode = code ? String(code).toUpperCase() : null;
   const isOfficial = !!(EVENT && normCode === EVENT.code);
+  // hosting: the setup-screen roster (the league's names) becomes the room's seats -- name #i races as duck i,
+  // steered by whoever claims it, on autopilot when nobody does
+  const leagueNames = role === 'host' ? (state.names || []).map((n) => String(n || '').trim()).filter((n) => n && !/^Duck \d+$/i.test(n)).slice(0, 16) : [];
+  const mySeat = leagueNames.findIndex((n) => n.toLowerCase() === name.toLowerCase());
   session = createSession({
     role, code, name,
-    want: normCode ? rememberedDuck(normCode) : null,
+    want: (normCode ? rememberedDuck(normCode) : null) ?? (mySeat >= 0 ? mySeat : null),
     kind: urlFlags.get('relay') ? 'relay' : 'supabase',
     relayUrl: urlFlags.get('relay') || undefined,
     hooks: {
@@ -481,11 +485,8 @@ async function goOnline(role, code = null) {
   try {
     await session.connect();
     requestWakeLock();
-    // the host's setup-screen roster (the league's names) becomes tap-to-claim chips for everyone joining
-    if (session.isHost) {
-      const leagueNames = (state.names || []).map((n) => String(n || '').trim()).filter((n) => n && !/^Duck \d+$/i.test(n));
-      if (leagueNames.length >= 2) session.setConfig({ roster: leagueNames.slice(0, 16) });
-    }
+    // publish the seats: everyone joining sees tap-to-claim chips, and unclaimed names still race (autopilot)
+    if (session.isHost && leagueNames.length >= 2) session.setConfig({ roster: leagueNames });
   } catch (e) {
     lobbyUi.setStatus(`Could not connect (${e.message || e}). Check the connection and reload.`, 'error');
   }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initialLobby, reduce, canStart, racers, freeSlot, rosterMessage, pickOrder, connQuality, seriesStandings, ROLES } from '../src/world3d/net/lobby.js';
+import { initialLobby, reduce, canStart, racers, freeSlot, rosterMessage, pickOrder, connQuality, seriesStandings, lineup, nameOf, seatCid, isSeatCid, ROLES } from '../src/world3d/net/lobby.js';
 
 const L0 = () => initialLobby({ code: 'ACDE', hostCid: 'host', meCid: 'host', now: 0 });
 
@@ -109,4 +109,56 @@ test('best-of-3 series: points accumulate, standings and final flag, then a fres
   s = reduce(s, { type: 'over', order: ['b', 'a', 'host'], raceNo: 4, now: 9 });
   assert.equal(seriesStandings(s).done, 1);
   assert.equal(seriesStandings(s).rows[0].cid, 'b');
+});
+
+test('line-up: every league seat races (claimed -> that player, unclaimed -> autopilot under the league name), then other claimers', () => {
+  let s = L0();
+  // host alone with a league roster can start an all-autopilot race
+  s = reduce(s, { type: 'hello', cid: 'host', name: 'Big screen', now: 1 });
+  s = reduce(s, { type: 'spectate', cid: 'host', now: 1 }); // the laptop only shows the race
+  assert.equal(canStart(s), false, 'no roster, no racers');
+  s = reduce(s, { type: 'config', config: { roster: ['Evan', 'Nathaniel', 'Connor', 'Ann'] }, now: 2 });
+  assert.equal(canStart(s), true, 'roster seats alone make a race');
+  assert.deepEqual(lineup(s), [
+    { cid: seatCid(0), name: 'Evan' }, { cid: seatCid(1), name: 'Nathaniel' }, { cid: seatCid(2), name: 'Connor' }, { cid: seatCid(3), name: 'Ann' },
+  ]);
+  assert.equal(nameOf(s, 'seat:2'), 'Connor');
+  assert.equal(nameOf(s, 'seat:9'), '—');
+  assert.equal(isSeatCid('seat:3'), true);
+  assert.equal(isSeatCid('c-abc123'), false);
+  // a league member who just opens the link with their saved name lands on their own seat (no tap needed)
+  s = reduce(s, { type: 'hello', cid: 'n', name: 'nathaniel', now: 3 });
+  assert.equal(s.players.n.duck, 1);
+  // a walk-in (name not in the league) gets a duck outside the league seats, then squats on Evan's seat explicitly
+  s = reduce(s, { type: 'hello', cid: 'w', name: 'Walk-in', now: 4 });
+  assert.equal(s.players.w.duck, 4, 'walk-ins do not take league seats by default');
+  s = reduce(s, { type: 'claim', cid: 'w', duck: 0, now: 4 });
+  // Ann pre-registered on another device days ago as duck 6 (before the roster existed): her old want is honoured,
+  // there is no autopilot double for her, and her seat 3 stays empty (no duck at all, not an AI Ann)
+  s = reduce(s, { type: 'hello', cid: 'a', name: 'Ann', want: 6, now: 5 });
+  assert.equal(s.players.a.duck, 6);
+  assert.deepEqual(lineup(s), [
+    { cid: 'w', name: 'Walk-in' }, // seat 0's holder
+    { cid: 'n', name: 'nathaniel' },
+    { cid: seatCid(2), name: 'Connor' }, // nobody came: autopilot
+    { cid: 'a', name: 'Ann' }, // other claimers after the seats
+    { cid: seatCid(0), name: 'Evan' }, // displaced by the squatter but still racing
+  ]);
+  // readiness gates the start for humans who are online; an offline claimer keeps the seat (autopilot until back)
+  assert.equal(canStart(s), false);
+  for (const cid of ['n', 'a']) s = reduce(s, { type: 'ready', cid, ready: true, now: 6 });
+  s = reduce(s, { type: 'leave', cid: 'w', now: 6 });
+  assert.equal(canStart(s), true);
+  assert.equal(lineup(s)[0].cid, 'w');
+  // ...until the seat's owner arrives: Evan takes his seat back from the offline squatter
+  s = reduce(s, { type: 'hello', cid: 'e', name: 'Evan', now: 7 });
+  assert.equal(s.players.e.duck, 0);
+  assert.equal(s.players.w.duck, -1);
+  assert.deepEqual(lineup(s).map((x) => x.name), ['Evan', 'nathaniel', 'Connor', 'Ann']);
+  // results keyed by seat cids resolve to league names and count for the series
+  s = reduce(s, { type: 'ready', cid: 'e', ready: true, now: 8 });
+  s = reduce(s, { type: 'start', startAt: 10, now: 9 });
+  s = reduce(s, { type: 'over', order: [seatCid(2), 'n', 'a', 'e'], times: {}, now: 10 });
+  assert.equal(s.wins[seatCid(2)], 1);
+  assert.equal(nameOf(s, seriesStandings(s).rows[0].cid), 'Connor');
 });

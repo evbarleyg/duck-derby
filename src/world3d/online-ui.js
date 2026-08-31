@@ -1,7 +1,7 @@
 // DOM for the Grand Prix Online lobby panel (world.html #online). Pure view: renders a lobby state and calls
 // back into the session for actions. main.js owns phase changes and the 3D side.
 import { TOWELS } from '../ducks.js';
-import { canStart, racers, connQuality, ROLES, MAX_PLAYERS, seriesStandings } from './net/lobby.js';
+import { canStart, racers, lineup, isSeatCid, nameOf, connQuality, ROLES, MAX_PLAYERS, seriesStandings } from './net/lobby.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -143,7 +143,7 @@ export function createLobbyUi({ session, shareUrl, onLeave, event = null, onClai
     el.series.hidden = !showSeries;
     if (showSeries) {
       el.seriesH.textContent = st.final ? `Series decided after ${st.done} races — final standings` : `Series standings after race ${st.done} of ${st.of}`;
-      el.seriesList.innerHTML = st.rows.map((r, k) => `<li><span>${k + 1}</span><span>${esc(lobby.players[r.cid] ? lobby.players[r.cid].name : '—')}</span><b>${r.points} pt${r.points === 1 ? '' : 's'}</b></li>`).join('');
+      el.seriesList.innerHTML = st.rows.map((r, k) => `<li><span>${k + 1}</span><span>${esc(nameOf(lobby, r.cid))}</span><b>${r.points} pt${r.points === 1 ? '' : 's'}</b></li>`).join('');
     }
     // host controls
     el.hostbox.hidden = !isHost;
@@ -155,14 +155,17 @@ export function createLobbyUi({ session, shareUrl, onLeave, event = null, onClai
       const ok = canStart(lobby);
       el.go.disabled = !ok;
       const rs = racers(lobby);
+      const grid = lineup(lobby);
+      const seats = grid.filter((e) => isSeatCid(e.cid)).length; // league names nobody claimed: they race on autopilot
+      const seatNote = seats ? ` · ${seats} unclaimed league duck${seats === 1 ? '' : 's'} on autopilot` : '';
       const notReady = rs.filter((p) => p.online && !p.ready).map((p) => p.name);
       const raceLabel = lobby.config.bestOf > 1 ? ` · race ${Math.min(st.final ? 1 : st.done + 1, lobby.config.bestOf)} of ${lobby.config.bestOf}` : '';
       el.go.textContent = lobby.config.bestOf > 1 ? `Start race ${st.final ? 1 : st.done + 1} of ${lobby.config.bestOf}` : 'Start the Grand Prix';
-      el.goSub.textContent = (ok ? `${rs.length} racer${rs.length === 1 ? '' : 's'} ready — go when you are` : rs.length === 0 ? 'Nobody has claimed a duck yet' : `Waiting for: ${notReady.join(', ')}`) + raceLabel;
+      el.goSub.textContent = (ok ? `${rs.length} racer${rs.length === 1 ? '' : 's'} ready${seatNote} — go when you are` : rs.length === 0 ? `Nobody has claimed a duck yet${seatNote}` : `Waiting for: ${notReady.join(', ')}${seatNote}`) + raceLabel;
       if (event) {
         const left = Date.parse(event.startsAt) - Date.now();
-        if (left > 15 * 60 * 1000) { el.go.disabled = true; el.go.textContent = 'Opens 15 min before the start'; el.goSub.textContent = `${rs.length} registered so far · people can claim their duck now and come back at race time`; }
-        else if (left <= 0 && !ok && rs.length >= 1) { el.go.disabled = false; el.go.textContent = `Start now (${notReady.length} not ready → autopilot)`; }
+        if (left > 15 * 60 * 1000) { el.go.disabled = true; el.go.textContent = 'Opens 15 min before the start'; el.goSub.textContent = `${rs.length} registered so far · people can claim their duck now and come back at race time${seatNote}`; }
+        else if (left <= 0 && !ok && grid.length >= 1) { el.go.disabled = false; el.go.textContent = `Start now (${notReady.length} not ready → autopilot)`; }
       }
     } else {
       const host = lobby.players[lobby.hostCid];
