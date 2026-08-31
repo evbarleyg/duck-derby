@@ -464,9 +464,9 @@ phase and the menu are covered as well. Remaining explanation for Evan's report 
 settles it.
 
 
-## Official race: Mon Aug 31 2026, 6:00 PM Pacific (room DRFT) — countdown + pre-registration
+## Official race: Mon Aug 31 2026, 5:00 PM Pacific (room DRFT) — countdown + pre-registration
 
-- `OFFICIAL_EVENT` in `net-config.js` (code `DRFT`, `startsAt: 2026-09-01T01:00:00Z`, title, photo path). Set to
+- `OFFICIAL_EVENT` in `net-config.js` (code `DRFT`, `startsAt: 2026-09-01T00:00:00Z` = 5:00 PM PT, title, photo path). Set to
   a new date/room for the next event; `null` hides all event UI.
 - Setup screen (`world.html`) shows an event header: photo (`share/event.jpg` — placeholder until Evan's photo is
   dropped in), title, a live countdown to the same UTC instant on every device (shown in local time + Pacific),
@@ -482,4 +482,4 @@ settles it.
 
 **Evan:** send the header photo and I'll drop it in as `share/event.jpg` (it also becomes the link-preview image
 for the event if we point `og:image` at it). On the night: open `world.html`, click **I'm hosting** (room DRFT) on
-the laptop ~20 minutes before 6, keep the tab visible; everyone else uses **Join** (or the QR/link `…/world#official`).
+the laptop ~20 minutes before 5, keep the tab visible; everyone else uses **Join** (or the QR/link `…/world#official`).
