@@ -491,3 +491,12 @@ settles it.
 **Evan:** send the header photo and I'll drop it in as `share/event.jpg` (it also becomes the link-preview image
 for the event if we point `og:image` at it). On the night: open `world.html`, click **I'm hosting** (room DRFT) on
 the laptop ~20 minutes before 5, keep the tab visible; everyone else uses **Join** (or the QR/link `…/world#official`).
+
+
+**Done (executor, ~6 h before the race): tap-to-claim league names.** The host's setup-screen roster (Evan's
+league names on the laptop) is published to the room as `config.roster`; everyone joining sees "Tap your name"
+chips — tap "Connor" → name set (saved on the phone) and Connor's seat (duck N = his position in the roster)
+claimed; names already present are struck through (duplicate-proof); free duck slots are labelled with the
+unclaimed league names. Freehand typing still works. Verified with host + phone through the relay; no changes to
+the race path. So: before opening the official room tonight, make sure the laptop's setup screen lists the league
+(it already does if the names are still there from earlier).

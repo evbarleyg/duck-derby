@@ -481,6 +481,11 @@ async function goOnline(role, code = null) {
   try {
     await session.connect();
     requestWakeLock();
+    // the host's setup-screen roster (the league's names) becomes tap-to-claim chips for everyone joining
+    if (session.isHost) {
+      const leagueNames = (state.names || []).map((n) => String(n || '').trim()).filter((n) => n && !/^Duck \d+$/i.test(n));
+      if (leagueNames.length >= 2) session.setConfig({ roster: leagueNames.slice(0, 16) });
+    }
   } catch (e) {
     lobbyUi.setStatus(`Could not connect (${e.message || e}). Check the connection and reload.`, 'error');
   }

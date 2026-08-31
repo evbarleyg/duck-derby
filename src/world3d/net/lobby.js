@@ -11,7 +11,7 @@ export function initialLobby({ code, hostCid, meCid, now = 0 }) {
     hostCid,
     meCid,
     phase: 'lobby', // lobby | countdown | race | results
-    config: { rule: 'w', items: true, bestOf: 1 },
+    config: { rule: 'w', items: true, bestOf: 1, roster: [] }, // roster: the league's names (host's setup list) offered as tap-to-claim
     players: {}, // cid -> { cid, name, duck (slot index or -1), ready, role, lastSeen, online, joinedAt }
     raceNo: 0,
     startAt: null,
@@ -131,6 +131,7 @@ export function reduce(state, a) {
       c.rule = c.rule === 'l' ? 'l' : 'w';
       c.items = !!c.items;
       c.bestOf = [1, 3, 5].includes(c.bestOf) ? c.bestOf : 1;
+      c.roster = Array.isArray(c.roster) ? c.roster.map((x) => String(x || '').trim().slice(0, 22)).slice(0, MAX_PLAYERS) : [];
       return { ...state, config: c, updatedAt: now };
     }
     case 'handoff': {

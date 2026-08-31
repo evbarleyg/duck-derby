@@ -48,7 +48,9 @@ test('host handoff, config validation, race lifecycle, rematch clears ready, bes
   let s = L0();
   for (const cid of ['host', 'p1', 'p2']) s = reduce(s, { type: 'hello', cid, name: cid, now: 1 });
   s = reduce(s, { type: 'config', config: { rule: 'l', items: 0, bestOf: 7 }, now: 2 });
-  assert.deepEqual(s.config, { rule: 'l', items: false, bestOf: 1 });
+  assert.deepEqual(s.config, { rule: 'l', items: false, bestOf: 1, roster: [] });
+  s = reduce(s, { type: 'config', config: { roster: ['Ann', '  Bob ', '', 7] }, now: 2 });
+  assert.deepEqual(s.config.roster, ['Ann', 'Bob', '', '7'], 'roster entries are trimmed strings');
   s = reduce(s, { type: 'handoff', to: 'p1', now: 3 });
   assert.equal(s.hostCid, 'p1');
   assert.equal(s.players.p1.role, ROLES.host);

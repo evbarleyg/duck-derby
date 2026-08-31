@@ -534,3 +534,8 @@ body.online #hud-item, body.online #hud-leader { display: none; }
   .ev-title { font-size: 1.35rem; }
   .ev-count { font-size: 1.7rem; }
 }
+#ol-league-names { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#ol-league-names button { border-radius: 999px !important; padding: 0.35rem 0.75rem !important; font: 800 0.88rem var(--font) !important; display: inline-flex; align-items: center; gap: 6px; }
+#ol-league-names button i { width: 0.9rem; height: 0.9rem; border-radius: 4px; display: inline-block; border: 1.5px solid rgba(255,255,255,0.8); }
+#ol-league-names button.me { background: var(--gold) !important; color: var(--ink) !important; border-color: transparent !important; }
+#ol-league-names button.taken { opacity: 0.35; text-decoration: line-through; cursor: not-allowed; }
