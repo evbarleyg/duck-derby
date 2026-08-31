@@ -264,6 +264,14 @@ build (post-6398adf), ran the seeded watch-race to results: while the outro play
 results path (session.js-driven over -> results), which this measurement did not cover -- worth an eye on how
 phaseTime/stopMusic behave after an online race and after rematch cycles.
 
+## Time-permitting ask for tonight (from Evan, 2026-08-31 afternoon)
+
+In the official room (DRFT), joiners type their name freehand. Evan expected the league preseed to carry
+over. If comfortable shipping before the 5 PM race (SKIP if it feels risky this close): offer the league
+roster as tap-to-claim options in the official join flow -- tap "Connor" -> name + duck claimed, typo-proof,
+duplicate-proof. The default league names already live in the setup roster; unclaimed names could also label
+the free duck slots. If not shipped, no harm: freehand names work, this is polish.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
