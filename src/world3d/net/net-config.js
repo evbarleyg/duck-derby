@@ -19,7 +19,7 @@ export const OFFICIAL_EVENT = {
   code: 'DRFT',
   title: 'Official Draft Race',
   subtitle: 'League draft order · everyone drives their own duck',
-  startsAt: '2026-09-01T01:00:00Z', // Mon Aug 31 2026, 6:00 PM Pacific
+  startsAt: '2026-09-01T00:00:00Z', // Mon Aug 31 2026, 5:00 PM Pacific
   photo: 'share/event.jpg', // header photo (falls back to the OG image if missing)
   hostHint: 'Evan hosts from the laptop; join from your phone any time before the start to claim your duck.',
 };
