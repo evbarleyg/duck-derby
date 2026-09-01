@@ -290,6 +290,20 @@ Fix suggestion: stamp fallback startAt in the same synced-clock timebase the dri
 clock.toLocal), or plain Date.now() epoch end-to-end, and add a guard: if computed local start is > 60 s away,
 clamp to now + 6 s. Please also add a real-two-machine (or artificially skewed-clock) test for this path.
 
+## Fallback freeze — SYMPTOM REFINEMENT from Evan (kills suspect 2, sharpens suspect 1)
+
+Evan confirms: every screen REACHED the race view -- all 12 ducks lined up at the start -- and none ever
+moved. So MSG.fallback was received and processed (fromHost passed); the freeze is purely the start-time
+math: go = Date.now() + (startAtLocal - performance.now()) landed far in the future, gridT became huge, and
+every screen parked in the 'grid' phase forever. For that to hit phones that had been in the room for
+minutes, clock.ready must have been false or stale on them -- CHECK: after the WebRTC change, P2P-linked
+phones call pauseState() and LEAVE the ':out' channel. If the clock-sync ping/pong (or its refresh) rides
+':in'/':out', every P2P-linked phone loses clock sync exactly when the P2P link comes up -- i.e. MOST phones
+-- and the fallback then hands them a raw host-uptime start they cannot interpret. That composite explains
+"all ducks at the line, none moved" on well-connected phones. (Host's own screen freezing still unexplained
+-- double-press interaction worth checking.) Fix stays the same: epoch-stamp the fallback start end-to-end +
+clamp far-future starts to now+6s; also route clock pings over the P2P channel when it is active.
+
 ## Fallback freeze — SECOND (likely stronger) suspect for the executor
 
 Beyond the performance.now() timebase issue already filed: the host-signed control-message change
