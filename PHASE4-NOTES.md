@@ -545,3 +545,29 @@ claimed; names already present are struck through (duplicate-proof); free duck s
 unclaimed league names. Freehand typing still works. Verified with host + phone through the relay; no changes to
 the race path. So: before opening the official room tonight, make sure the laptop's setup screen lists the league
 (it already does if the names are still there from earlier).
+
+
+## Executor: fallback freeze — root cause, fix, and the skewed-clock test (2026-09-01)
+
+**Root cause (mine):** while `state.online` was true, the `race`/`finish` phases in `main.js` sent *every* race
+through the live-network step (`stepOnline`), which advances time from host snapshots. The seeded fallback race has
+no live session race, so `stepOnline` returned early every frame and `state.t` never advanced — every screen sat on
+the start line, host included. Second, independent problem (the one you spotted): a guest whose clock had not
+synced yet converted the host's page-uptime `startAt` against its own uptime, which can be minutes apart.
+
+**Fix (`main.js`, `session.js`):**
+- Online + seeded fallback now takes the normal playback path (the live path only when a live race exists), and the
+  playback is anchored to the shared start moment: a slow phone snaps forward to the wall-clock race time instead of
+  drifting (`state.syncStart`).
+- The fallback message carries both timebases (`startAt` host page-time for synced clients, `startEpoch` wall-clock
+  for everyone else, plus `leadMs`); receivers pick the best available and clamp anything that lands >30 s away or in
+  the past to "now + 6 s". The driven start got the same >60 s sanity clamp. `[net]` logs print
+  "fallback race starts in N s" (and any clamp).
+- The host reports the fallback result to the room (`fallbackOver`) so every lobby converges to `results`
+  (Replay → rematch works); clients keep their own identical local results view.
+- `tools/fallback-check.mjs` (new): host + 2 guests through the relay, one guest with **+37 min performance.now()
+  skew and −2.5 s Date.now() skew**; asserts everyone leaves the line, identical results on all three, lobby phases
+  converge, rematch returns to the lobby. PASS. (The old nettest2 check only compared seed/names — that's why it
+  missed the freeze; it still passes.)
+
+Sorry this one bit on the night — glad the pinned-seed link carried the verdict.

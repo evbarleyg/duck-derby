@@ -535,6 +535,10 @@ function onOnlineOver({ order, times, names, rule, picks, series }) {
   state.rule = rule;
   state.series = series || null; // best-of-N standings (null for single-race format)
   if (lobbyUi) lobbyUi.show(false);
+  if (state.race && !state.trial && !state.race.trial && state.raceNames.length === names.length) {
+    // seeded fallback race: every client already plays the identical race locally and shows its own results
+    return;
+  }
   if (!state.race || !state.trial || state.raceNames.length !== names.length) {
     // we did not run this race (joined after it ended): show it from the message
     showStaticResult({ names, order, times: order.map((i) => times[i]), rule });
@@ -559,6 +563,7 @@ function onOnlineAbort(reason) {
 /** Emergency mode: the seeded race, same names + seed on every phone, chase cam on my duck, synced start. */
 function onOnlineFallback({ names, seed, startAtLocal, rule, items, mySlot }) {
   lobbyUi.show(false);
+  state.syncStart = startAtLocal; // wall-clock anchored playback: every phone shows the same moment even at low fps
   state.seed = seed;
   state.rule = rule;
   state.items = items !== false;
@@ -652,6 +657,7 @@ function updateNetPill() {
 
 function startRace({ fromUrl = false, names = null, trial = false, online = null, fallback = false } = {}) {
   if (state.online && !online && !fallback) { console.warn('[net] blocked a local race start while in an online room', new Error().stack.split('\n')[2]); return; }
+  if (!fallback) state.syncStart = null;
   if (state.sound) audio.unlock();
   audio.setEnabled(state.sound);
   const raw = names || state.names;
@@ -741,8 +747,9 @@ function startRace({ fromUrl = false, names = null, trial = false, online = null
   audio.setMusicIntensity(0.25);
   const PRE = 5600; // grid + countdown before the synchronised start
   if (fallback) {
-    // seeded "let the ducks decide": synced start on the host's clock, no lobby card
+    // seeded "let the ducks decide": synced start on the host's clock, no lobby card; race t=0 lands on syncStart
     state.gridT = Math.max(0.8, (state.go - Date.now()) / 1000 - 2.4);
+    state.gridT0 = 0;
     setPhase('grid');
   } else if (online) {
     // GO must land on the host's startAt: grid absorbs the slack, countdown is the fixed 2.4 s
@@ -914,7 +921,14 @@ function setPhase(phase) {
     const w = state.race.order[0];
     lowerThird('Winner', state.raceNames[w], `${fmtTime(state.race.finishTimes[w])} · ${state.race.photoFinish ? 'photo finish' : 'by ' + state.race.margin.toFixed(2) + ' s'} · picks ${state.rule === 'l' ? 'last' : 'first'}`);
   }
-  if (phase === 'results') { lowerThird(null); showResults(); }
+  if (phase === 'results') {
+    lowerThird(null);
+    showResults();
+    if (state.online && session && session.isHost && !state.trial && state.race && state.race.order) {
+      const times = {}; state.race.finishTimes.forEach((ft, i) => { times[i] = ft; });
+      session.fallbackOver(state.race.order.slice(), times);
+    }
+  }
 }
 
 function skipIntro() {
@@ -1783,7 +1797,8 @@ function step(dt) {
       break;
     }
     case 'race': {
-      if (state.online && session) {
+      if (state.online && session && state.trial) {
+        // live (driven) online race; the seeded fallback race falls through to the normal playback path below
         stepOnline(dt);
         const me = session.mySlot >= 0 && state.trial ? state.trial.ducks[session.mySlot] : null;
         const myDone = me && state.race.finishTimes[session.mySlot] !== null && state.t > state.race.finishTimes[session.mySlot] + 2.5;
@@ -1814,6 +1829,7 @@ function step(dt) {
       if (state.freezeUntil && state.realTime < state.freezeUntil) rate = 0;
       state.rate = rate === 0 ? 0 : lerp(state.rate, rate, Math.min(1, dt * ease));
       state.t += dt * state.rate;
+      if (state.syncStart && !state.freezeUntil) { const wall = (performance.now() - state.syncStart) / 1000 - 2.4 - (state.gridT0 || 0); if (wall - state.t > 0.3) state.t = wall; } // synced fallback: never lag the shared clock
       if (state.freezeUntil && state.realTime >= state.freezeUntil && state.letterboxed) { state.letterboxed = false; letterbox(false); state.rate = 0.6; }
       // done? keep riding with my duck until it is home (capped), then the winner's orbit
       const lastT = race ? Math.max(...race.finishTimes) : 0;
@@ -1825,7 +1841,7 @@ function step(dt) {
       break;
     }
     case 'finish': {
-      if (state.online && session) {
+      if (state.online && session && state.trial) {
         // keep the live view running (others are still racing); results arrive from the host (onOver)
         stepOnline(dt);
         break;
@@ -1876,7 +1892,7 @@ function step(dt) {
     default:
       break;
   }
-  if (state.online && session && (state.phase === 'grid' || state.phase === 'countdown')) stepOnline(dt);
+  if (state.online && session && state.trial && (state.phase === 'grid' || state.phase === 'countdown')) stepOnline(dt);
   if (state.trial && trialProps.userData.pads) trialProps.userData.pads.material.opacity = 0.65 + Math.sin(state.realTime * 6) * 0.2;
   if (state.ghostDuck) {
     const g = state.trial && state.ghost && state.phase === 'race' ? ghostAt(state.ghost.path, state.trial.t) : null;

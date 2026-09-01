@@ -304,6 +304,8 @@ export function createSession(opts) {
       s.live = createRemoteRace({ names: msg.names, myIndex: s.mySlot, seed: msg.seed, interpDelay: policy.interpDelay });
       if (!clock.samples.length && msg.hostNow) clock.provisional(msg.hostNow, performance.now() - 40); // assume ~40 ms one-way until pings refine it
       s.startAtLocal = clock.samples.length || msg.hostNow ? clock.toLocal(msg.startAt) : performance.now() + COUNTDOWN_MS - 150;
+      const aheadMs = s.startAtLocal - performance.now();
+      if (aheadMs > 60000) { netlog('start moment implausibly far (' + Math.round(aheadMs) + ' ms) — clamping'); s.startAtLocal = performance.now() + COUNTDOWN_MS - 150; }
     }
     snapTick = 0;
     hooks.onCountdown && hooks.onCountdown({ startAtLocal: s.startAtLocal, names: msg.names, mySlot: s.mySlot, seed: msg.seed, raceNo: msg.raceNo, rule: msg.rule });
@@ -444,14 +446,25 @@ export function createSession(opts) {
   function fallback() {
     if (!s.isHost) return;
     const rs = racers(lobby);
-    const msg = { names: rs.map((p) => p.name), cids: rs.map((p) => p.cid), seed: (Math.floor(Math.random() * 2 ** 31) >>> 0), startAt: performance.now() + 6000, rule: lobby.config.rule, items: lobby.config.items };
+    // two timebases on purpose: startAt is host page-time (exact for clients with a synced clock), startEpoch is
+    // wall-clock (works for anyone, to within device clock skew); receivers sanity-clamp either way
+    const msg = { names: rs.map((p) => p.name), cids: rs.map((p) => p.cid), seed: (Math.floor(Math.random() * 2 ** 31) >>> 0), startAt: performance.now() + 6000, startEpoch: Date.now() + 6000, leadMs: 6000, rule: lobby.config.rule, items: lobby.config.items };
     netlog('host: let the ducks decide (seeded fallback)');
     hostSend(MSG.fallback, msg);
     setTimeout(() => room && hostSend(MSG.fallback, msg), 400);
     runFallback(msg, true);
   }
   function runFallback(msg, asHost = false) {
-    const startAtLocal = asHost || !clock.ready ? msg.startAt : clock.toLocal(msg.startAt);
+    const nowP = performance.now();
+    let startAtLocal;
+    if (asHost) startAtLocal = msg.startAt;
+    else if (clock.samples.length) startAtLocal = clock.toLocal(msg.startAt); // synced: exact
+    else if (msg.startEpoch) startAtLocal = nowP + (msg.startEpoch - Date.now()); // wall clock (device skew only)
+    else startAtLocal = nowP + (msg.leadMs || 6000);
+    // never trust a start that lands absurdly far away or in the past (mixed/unsynced clocks): go in ~lead time
+    const ahead = startAtLocal - nowP;
+    if (!(ahead > -3000 && ahead < 30000)) { netlog('fallback start out of range (' + Math.round(ahead) + ' ms) — clamping'); startAtLocal = nowP + Math.min(msg.leadMs || 6000, 6000); }
+    netlog('fallback race starts in', Math.round((startAtLocal - nowP) / 100) / 10, 's');
     s.mySlot = msg.cids.indexOf(cid);
     dispatch({ type: 'start', startAt: msg.startAt, raceNo: lobby.raceNo + 1 });
     hooks.onFallback && hooks.onFallback({ names: msg.names, seed: msg.seed, startAtLocal, rule: msg.rule, items: msg.items, mySlot: s.mySlot });
