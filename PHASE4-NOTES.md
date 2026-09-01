@@ -290,6 +290,19 @@ Fix suggestion: stamp fallback startAt in the same synced-clock timebase the dri
 clock.toLocal), or plain Date.now() epoch end-to-end, and add a guard: if computed local start is > 60 s away,
 clamp to now + 6 s. Please also add a real-two-machine (or artificially skewed-clock) test for this path.
 
+## Fallback freeze — SECOND (likely stronger) suspect for the executor
+
+Beyond the performance.now() timebase issue already filed: the host-signed control-message change
+(4b4c926, "guests obey only their host") gates MSG.fallback behind fromHost(p). If hostSend's signing
+envelope does not match what fromHost expects for this message type (or the fallback msg predates a field
+the check needs), every guest SILENTLY DROPS the fallback start -- which matches the live symptom better
+than clock skew (all phones frozen regardless of sync state, host screen ambiguous). Note nettest2
+(the only fallback coverage) is Playwright-based and NOT in ci:net, so fallback has had zero automated
+coverage since the signing change landed. Please: (1) reproduce with two real browser contexts against
+Supabase or relay AT CURRENT HEAD, watching for the guests' "[net] fallback (seeded race) from host" log
+line -- its absence proves the drop; (2) fix; (3) add fallback to ci:net so this path can never silently
+regress again. This is the button the league pressed at the real draft.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
