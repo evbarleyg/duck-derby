@@ -96,6 +96,12 @@ export function createRtcStar({ cid, isHost, hostCid, signal, onFrame, onInput, 
     }
     return reached;
   }
+  /** Host: send one object to a single linked peer over its state channel; false if not linked. */
+  function sendTo(remote, obj) {
+    const peer = peers.get(remote);
+    if (!peer || !peer.open || !peer.state || peer.state.readyState !== 'open') return false;
+    try { peer.state.send(JSON.stringify(obj)); return true; } catch { return false; }
+  }
   /** Guest: send an input to the host over the data channel; false if not available (use the relay). */
   function sendInput(obj) {
     const peer = peers.get(hostCid());
@@ -106,5 +112,5 @@ export function createRtcStar({ cid, isHost, hostCid, signal, onFrame, onInput, 
   function hostLinkOpen() { return isOpen(hostCid()); }
   function close(remote) { const p = peers.get(remote); if (!p) return; try { p.pc.close(); } catch { /* ignore */ } peers.delete(remote); }
   function closeAll() { for (const r of [...peers.keys()]) close(r); }
-  return { supported: RTC_SUPPORTED, connectTo, onSignal, sendFrame, sendInput, isOpen, hostLinkOpen, close, closeAll, stats, peers };
+  return { supported: RTC_SUPPORTED, connectTo, onSignal, sendFrame, sendTo, sendInput, isOpen, hostLinkOpen, close, closeAll, stats, peers };
 }

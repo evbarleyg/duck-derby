@@ -571,3 +571,11 @@ synced yet converted the host's page-uptime `startAt` against its own uptime, wh
   missed the freeze; it still passes.)
 
 Sorry this one bit on the night — glad the pinned-seed link carried the verdict.
+
+**Re your refinement (P2P phones leaving `:out` → stale clocks):** correct that a linked phone had left the state
+channel and lobby pongs were broadcast there — its initial burst (first ~1 s after joining, before the link comes
+up) did sync it, but nothing refreshed afterwards. Now the host answers a linked phone's lobby pings over its data
+channel (pong-only frame), unlinked phones still get the state-channel pong, and in-race pongs ride the frames as
+before. Measured: a linked guest idling in the lobby went 6 → 10 clock samples in 12 s. Combined with the playback
+path fix, the two-timebase start + clamps, this closes every variant of the freeze we have evidence for; the host's
+own freeze is explained by the playback-path bug alone (it never needed a clock).

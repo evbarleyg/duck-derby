@@ -176,9 +176,12 @@ export function createSession(opts) {
     room.on('input', MSG.input, (p) => onInputIn(p));
     room.on('input', MSG.ping, (p) => {
       if (!s.isHost) return;
-      // during a race the pong rides inside the next frame (no extra fan-out message); in the lobby answer directly
-      if (hostRace && (lobby.phase === 'race' || lobby.phase === 'countdown')) pendingPongs.push([p.c, p.t0, performance.now()]);
-      else room.send('state', MSG.pong, { c: p.c, t0: p.t0, th: performance.now() });
+      // during a race the pong rides inside the next frame (no extra fan-out message); in the lobby answer directly —
+      // over the peer's data channel when it is linked (a linked phone has LEFT the state channel, so a broadcast pong
+      // would never reach it and its clock would go stale), else on the state channel
+      const th = performance.now();
+      if (hostRace && (lobby.phase === 'race' || lobby.phase === 'countdown')) pendingPongs.push([p.c, p.t0, th]);
+      else if (!(rtc.isOpen(p.c) && rtc.sendTo(p.c, { p: [[p.c, p.t0, th]], hs: th }))) room.send('state', MSG.pong, { c: p.c, t0: p.t0, th });
       seen(p.c);
     });
     // ---- state channel (everyone but the host consumes)
@@ -210,15 +213,16 @@ export function createSession(opts) {
     seen(p.c);
   }
   function onFrameIn(f, viaRtc) {
-    if (s.isHost) return;
-    const tick = f.s && f.s[1];
-    if (tick !== undefined && tick === lastFrameTick) return; // same frame via both paths
-    lastFrameTick = tick;
+    if (s.isHost || !f) return;
     const nowP = performance.now();
     s.lastHostSeen = Date.now();
+    if (f.p) for (const pg of f.p) if (pg[0] === cid) clock.addSample(pg[1], nowP - Math.max(0, (f.hs || pg[2]) - pg[2]), pg[2]); // pong folded into the frame: discount the time it waited on the host
+    if (!f.s) return; // pong-only frame (lobby clock sync over the data channel)
+    const tick = f.s[1];
+    if (tick !== undefined && tick === lastFrameTick) return; // same frame via both paths
+    lastFrameTick = tick;
     s.stats.snapsIn++;
     if (viaRtc) s.stats.rtcFramesIn = (s.stats.rtcFramesIn || 0) + 1;
-    if (f.p) for (const pg of f.p) if (pg[0] === cid) clock.addSample(pg[1], nowP - Math.max(0, (f.hs || pg[2]) - pg[2]), pg[2]); // pong folded into the frame: discount the time it waited on the host
     const snap = unpackSnapshot(f.s, unpackTarget);
     if (snap && s.live && s.live.applySnapshot) s.live.applySnapshot(snap);
     if (f.e && f.e.length && s.live && s.live.applyEvents) s.live.applyEvents(f.e);
