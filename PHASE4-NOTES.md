@@ -272,6 +272,24 @@ roster as tap-to-claim options in the official join flow -- tap "Connor" -> name
 duplicate-proof. The default league names already live in the setup roster; unclaimed names could also label
 the free duck slots. If not shipped, no harm: freehand names work, this is polish.
 
+## LIVE FAILURE at the real draft (2026-08-31 5:00 PM): "Let the ducks decide" froze every screen
+
+Pressed in the official DRFT room with ~12 claimed ducks: all screens sat at the start line indefinitely
+("no one moved"), host included; pressing again just re-sent it (two starts 24 s apart observed). League was
+switched to the pinned-seed share link for the verdict (worked perfectly).
+
+Suspected root cause (from reading session.js fallback()): the fallback message stamps
+`startAt: performance.now() + 6000` -- a PAGE-UPTIME timebase -- but the observed rewritten URL carried
+`go=1788220812486`, a WALL-CLOCK epoch. Somewhere in runFallback -> start dispatch the two timebases mix, so
+clients compare a start moment against the wrong clock and wait forever (or ~20 min for unsync'd joiners).
+Note the relay/nettest2 coverage would NOT catch this: all test contexts launch within seconds on one
+machine, so uptime clocks are near-aligned and the mixed-timebase comparison accidentally passes. Real
+phones with wildly different page-load times hit it instantly.
+
+Fix suggestion: stamp fallback startAt in the same synced-clock timebase the driven start uses (hostNow +
+clock.toLocal), or plain Date.now() epoch end-to-end, and add a guard: if computed local start is > 60 s away,
+clamp to now + 6 s. Please also add a real-two-machine (or artificially skewed-clock) test for this path.
+
 ## Draft night runbook (host = Evan's laptop)
 
 1. Laptop on power, Chrome/Safari, open `https://duck-derby.vercel.app/world.html` → **Host a race**. Keep this
